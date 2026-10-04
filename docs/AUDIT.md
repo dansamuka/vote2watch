@@ -181,7 +181,9 @@ The test checks:
 
 ---
 
-# Engine and data audit (v5.0–7.0, October 2026)
+# Historical audit record (v5.0–7.3, superseded by v8.0)
+
+> The sections below are retained for provenance. Any method, count, default or open issue that conflicts with the v8.0 section above is historical and no longer describes the live Vote2Watch engine.
 
 Scope: the scenario engine in `js/app.js` (`sim`, `mc`, `r2sim`, `disRisk`,
 `tipPts`, shocks), the rendering that reports its numbers, and the data files.
@@ -342,21 +344,20 @@ double-counted the realignment.
 These transfer rates are judgement calls, not measurements. The first item on
 the data roadmap is to replace them with regional cuts from published polls.
 
-## Open: needs a modelling decision (not changed)
+## Open after v8.0
 
-1. **Run-off turnout.** Round two reuses round-one turnout and fixed cluster transfer
-   rates (`R2T`). It also assumes the run-off is Ruto vs the opposition bloc,
-   even when the third force (e.g. Sifuna) out-polls the opposition in round one.
-2. **Reproducibility.** Seeded Research mode covers `mc()` and, since v6, the
-   scenario cards. Live-event shocks still use `Math.random`.
-3. **Errors are swallowed.** `mc()` still wraps each iteration in an empty
-   `catch`. A failing run is silently dropped but still counted in the
-   denominator.
+1. **Run-off turnout.** Round two still reuses round-one county turnout. A future version should model differential re-mobilisation and abstention in the fresh election.
+2. **Live-event reproducibility.** Seeded Research mode covers model simulations and scenario cards; optional synthetic live-event shocks still use non-seeded browser randomness.
+3. **Monte Carlo error accounting.** `mc()` still catches per-iteration failures. The deployment validator protects the governed invariants, but a future engine revision should surface and count failed iterations explicitly.
+4. **True ward inference.** Political preference/turnout remain constituency-imputed. Independent ward estimates require defensible ward-level results or covariates and validation against held-out elections.
+5. **Registration geography.** The 20 Aug 2026 ECVR figure is national. County weights after 28 Apr are therefore a transparent allocation proxy until IEBC publishes a newer county split.
+6. **Coalition transfers.** Candidate × region priors are better than one universal matrix but remain judgemental. They should be replaced or updated when direct transfer/endorsement evidence becomes available.
 
-## Data notes
+## Current data notes
 
-- All 1,457 ward baselines are imputed from 2022 constituency aggregates
-  (`dq`, `vl` and `dn` are model attributes, not observations).
+- Geography is canonical at **47 counties / 290 constituencies / 1,450 wards**.
+- The 2022 ward register reconciles to **22,102,532**.
+- Ward political shares and turnout carry `basis: "constituency_imputed"`.
 - The transport network in `data/transport.js` is marked `source: "synthetic"`.
-- County geometry has 38 source polygons and 9 proxy polygons (shown in the
-  Map tab's diagnostics).
+- County geometry still contains source and proxy polygons; Map diagnostics disclose match coverage.
+- Development/rally events are signals only unless later polling validates an electoral effect.
