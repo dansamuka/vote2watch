@@ -151,6 +151,12 @@
           <option value="base">2022 certified register · 22.10m</option>
         </select>
         <p class="hint">Current/target county weights allocate the latest national additions using IEBC's 28 Apr 2026 county ECVR distribution. They are not a gazetted 2027 register.</p>
+        <label class="sl-top" for="pollModeSelect"><span>Poll baseline</span><output>sensitivity</output></label>
+        <select class="gov-select w100" id="pollModeSelect">
+          <option value="validated" selected>Validated / model-eligible polls</option>
+          <option value="all">All published polls · sensitivity only</option>
+        </select>
+        <p class="hint">Held-out Mizani and Politrack data never enter the central baseline unless you explicitly select the all-polls sensitivity.</p>
       </div>
     </details>
     </div>
