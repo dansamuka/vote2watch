@@ -517,7 +517,7 @@ function r2sim(ctyRes,nat,dir='model',noise=false){
   // Transfer uncertainty is correlated within an eliminated contestant's electorate:
   // if their endorsement under-performs, it under-performs across counties rather than
   // being washed out by hundreds of independent local draws.
-  const transferShock=Object.fromEntries(keys.map(k=>[k,noise?rng()*0.10:0]));
+  const transferShock=Object.fromEntries(keys.map(k=>[k,noise?rng()*0.15:0]));
   let aV=0,bV=0;
   const r2cty=ctyRes.map(c=>{
     let ra=v(c,a),rb=v(c,b);
