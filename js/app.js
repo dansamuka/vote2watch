@@ -124,7 +124,7 @@ const SCENS=[
     cfg:presetCfg(['Ruto’s side','Kalonzo–Matiang\'i'],[['William Ruto'],['Kalonzo Musyoka',"Fred Matiang'i"]]),p:{tf:0,si:0,so:0,ys:0,rt:{...RT_ZERO}}}
 ];
 // Default assumptions. RAW integers: engine divides by 100.
-const DEFAULTS={tf:0,si:0,so:0,ys:0,registerMode:'current',reg:{uda:true},rt:{...RT_DEFAULT}};
+const DEFAULTS={tf:0,si:0,so:0,ys:0,registerMode:'current',pollMode:'validated',reg:{uda:true},rt:{...RT_DEFAULT}};
 // Coalition display lists (Article 138 tab)
 const FK=['Bungoma','Kakamega','Vihiga','Busia','Trans Nzoia'];
 const OLG=['Mombasa','Kilifi','Kwale','Lamu','Tana River'];
@@ -135,7 +135,7 @@ const CTY_N=24;
 // ═══ STATE — all raw integers, engine divides ═══
 const S={
   tf:DEFAULTS.tf,si:DEFAULTS.si,so:DEFAULTS.so,ys:DEFAULTS.ys,  // RAW pp; engine does /100
-  reg:{...DEFAULTS.reg},rt:{...DEFAULTS.rt},registerMode:DEFAULTS.registerMode,
+  reg:{...DEFAULTS.reg},rt:{...DEFAULTS.rt},registerMode:DEFAULTS.registerMode,pollMode:DEFAULTS.pollMode,
   cfg:defaultCfg(),
   selCty:'Nairobi City',
   shocks:[],shLog:[],timer:30,live:false,
@@ -189,36 +189,35 @@ const WK=WARDS.map(w=>({
 // national share matches their polling average (decided voters). The starting
 // pattern is the candidate's regional profile x home-county boost x the ward's
 // 2022 lean (Ruto-leaning wards for 'bi' candidates, Raila-leaning for 'bo').
-const CAND=(()=>{
+function buildCandidateField(pollMode='validated'){
   const nW=WARDS.length,nC=CANDIDATES.length;
-  // Fit national polling levels using the current-registration geography rather than
-  // a uniform 2022 uplift. Ward preferences themselves remain constituency-imputed.
   const wt=WARDS.map(w=>w.voters*registerScale(w.county,'current')*w.toBase);
-  // The level for each county group comes from the candidate's group strength
-  // (data/context.js); 2022 results, softened by a square root, spread it across
-  // the counties and wards inside the group.
   const mean={bi:{},bo:{}};
-  const sums={};WARDS.forEach((w,i)=>{const k=GROUP_OF[w.county]||w.county;const s=sums[k]||(sums[k]={s:0,b:0,o:0});s.s+=wt[i];s.b+=wt[i]*w.bi;s.o+=wt[i]*w.bo;});
-  Object.entries(sums).forEach(([k,s])=>{mean.bi[k]=s.b/(s.s||1);mean.bo[k]=s.o/(s.s||1);});
-  const tot=CANDIDATES.reduce((a,c)=>a+c.avg,0);
-  const target=CANDIDATES.map(c=>c.avg/tot);
+  const sums={};WARDS.forEach((w,i)=>{const k=GROUP_OF[w.county]||w.county;const z=sums[k]||(sums[k]={s:0,b:0,o:0});z.s+=wt[i];z.b+=wt[i]*w.bi;z.o+=wt[i]*w.bo;});
+  Object.entries(sums).forEach(([k,z])=>{mean.bi[k]=z.b/(z.s||1);mean.bo[k]=z.o/(z.s||1);});
+  const val=c=>pollMode==='all'?c.avgAll:c.avg;
+  const tot=CANDIDATES.reduce((a,c)=>a+val(c),0);
+  const target=CANDIDATES.map(c=>val(c)/tot);
   const M=CANDIDATES.map(c=>{
     const home=new Set(c.home);
     return Float64Array.from(WARDS,w=>{
       const lean=Math.sqrt(Math.max(0.05,(w[c.lean]||0)/(mean[c.lean][GROUP_OF[w.county]||w.county]||1)));
       const g=c.g[GROUP_OF[w.county]]??c.g.rest??0.5;
       const youth=Math.exp((c.youth||0)*((w.yr||0.42)-0.42)*2.5);
-      return (c.avg/tot)*g*lean*youth*(home.has(w.county)?1.5:1);
+      return (val(c)/tot)*g*lean*youth*(home.has(w.county)?1.5:1);
     });
   });
   const W=wt.reduce((a,b)=>a+b,0);
   for(let it=0;it<40;it++){
-    for(let i=0;i<nW;i++){let s=0;for(let c=0;c<nC;c++)s+=M[c][i];if(s>0)for(let c=0;c<nC;c++)M[c][i]/=s;}
+    for(let i=0;i<nW;i++){let z=0;for(let c=0;c<nC;c++)z+=M[c][i];if(z>0)for(let c=0;c<nC;c++)M[c][i]/=z;}
     if(it===39)break;
-    for(let c=0;c<nC;c++){let s=0;for(let i=0;i<nW;i++)s+=M[c][i]*wt[i];const f=target[c]*W/(s||1);for(let i=0;i<nW;i++)M[c][i]*=f;}
+    for(let c=0;c<nC;c++){let z=0;for(let i=0;i<nW;i++)z+=M[c][i]*wt[i];const f=target[c]*W/(z||1);for(let i=0;i<nW;i++)M[c][i]*=f;}
   }
-  return {names:CANDIDATES.map(c=>c.name),share:M,target};
-})();
+  return {names:CANDIDATES.map(c=>c.name),share:M,target,pollMode};
+}
+const CAND_FIELDS={validated:buildCandidateField('validated'),all:buildCandidateField('all')};
+const CAND=CAND_FIELDS.validated;
+function candidateField(mode='validated'){return CAND_FIELDS[mode]||CAND_FIELDS.validated;}
 
 // Turn a team configuration into contestants and per-ward baseline shares.
 //   A = team 0 (Ruto's side) → 'inc' slot · B = team 1 → 'opp' slot
@@ -226,8 +225,9 @@ const CAND=(()=>{
 // Multi-member teams keep `follow`% of their members' support; the rest scatters
 // across the field (ward shares are renormalised).
 const _cfgCache=new Map();
-function fieldFor(cfg){
-  const key=JSON.stringify(cfg);
+function fieldFor(cfg,pollMode=S.pollMode||'validated'){
+  const CF=candidateField(pollMode);
+  const key=pollMode+'|'+JSON.stringify(cfg);
   let f=_cfgCache.get(key);if(f)return f;
   if(_cfgCache.size>16)_cfgCache.clear();
   const follow=(cfg.follow??85)/100,offF=(cfg.offFollow??LEAK_DEFAULT.off)/100;
@@ -249,7 +249,7 @@ function fieldFor(cfg){
   // pass 1: kept support, stay-home and cross-over flows
   all.forEach(g=>{
     g.members.forEach(ci=>{
-      const nm=CAND.names[ci],tk=g.ticket,sh=CAND.share[ci];
+      const nm=CAND.names[ci],tk=g.ticket,sh=CF.share[ci];
       if(!g.leakE)g.leakE=new Float64Array(nW);
       for(let i=0;i<nW;i++){
         const group=GROUP_OF[WARDS[i].county],pr=transferPrior(nm,group);
@@ -303,10 +303,11 @@ function sim(params={},noise=false,shocks=true,capWards=false){
   const reg={...S.reg,...(params.reg||{})};
   const rt=params.rt||S.rt||RT_ZERO;
   const registerMode=params.registerMode||S.registerMode||'current';
+  const pollMode=params.pollMode||S.pollMode||'validated';
   const regScale=Object.fromEntries(CO.map(c=>[c.name,registerScale(c.name,registerMode)]));
   // county → turnout factor from the regional sliders
   const rtc={};RT_REGIONS.forEach(r=>{const f=1+(rt[r.k]||0)/100;r.g.forEach(g=>(COUNTY_GROUP[g]||[]).forEach(n=>rtc[n]=f));});
-  const F=fieldFor(params.cfg||S.cfg);
+  const F=fieldFor(params.cfg||S.cfg,pollMode);
   const nO=F.others.length;
 
   // A national swing is drawn first and applied to every ward, so polling-style
@@ -391,7 +392,7 @@ function sim(params={},noise=false,shocks=true,capWards=false){
 function mcCore(params,n){
   let i=0,iW=0,oW=0,ro=0,iJ=0,oJ=0;
   const iA=[],oA=[],tA=[],pairs={},r2Win={};
-  const gen=S.mcMode==='research'?mulberry32(seedHash(`${S.seed}|${JSON.stringify(params)}|${n}|${S.tf}|${S.si}|${S.so}|${S.ys}|${S.registerMode}|${JSON.stringify(S.reg)}|${JSON.stringify(S.rt)}|${JSON.stringify(S.cfg)}`)):null;
+  const gen=S.mcMode==='research'?mulberry32(seedHash(`${S.seed}|${JSON.stringify(params)}|${n}|${S.tf}|${S.si}|${S.so}|${S.ys}|${S.registerMode}|${S.pollMode}|${JSON.stringify(S.reg)}|${JSON.stringify(S.rt)}|${JSON.stringify(S.cfg)}`)):null;
   const mode=S.mcMode,seed=S.seed;
   return {
     step(k){
@@ -431,7 +432,7 @@ function mcCore(params,n){
 }
 function mc(params={},n=ITERS){const m=mcCore(params,n);m.step(n);return m.result();}
 function structuralSummary(){
-  const vals=SCENS.map(sc=>{const r=sim({...sc.p,cfg:sc.cfg,registerMode:S.registerMode},false,false,false);return{id:sc.id,title:sc.t,i:r.nat.i,o:r.nat.o,t:r.nat.t};});
+  const vals=SCENS.map(sc=>{const r=sim({...sc.p,cfg:sc.cfg,registerMode:S.registerMode,pollMode:S.pollMode},false,false,false);return{id:sc.id,title:sc.t,i:r.nat.i,o:r.nat.o,t:r.nat.t};});
   const inc=vals.map(x=>x.i),opp=vals.map(x=>x.o);
   return{values:vals,iLo:Math.min(...inc),iHi:Math.max(...inc),oLo:Math.min(...opp),oHi:Math.max(...opp)};
 }
@@ -890,10 +891,10 @@ function rScen(){
   const N_SC=200;
   // Presets ignore the sliders and switches, so only the seed and poll anchor
   // matter: cache so slider moves stay fast.
-  const key=JSON.stringify([S.seed,S.reg,S.registerMode]);
+  const key=JSON.stringify([S.seed,S.reg,S.registerMode,S.pollMode]);
   if(rScen._key!==key){rScen._key=key;rScen._res=null;}
   const results=rScen._res||(rScen._res=SCENS.map(sc=>{
-    const p={...sc.p,cfg:sc.cfg,registerMode:S.registerMode};
+    const p={...sc.p,cfg:sc.cfg,registerMode:S.registerMode,pollMode:S.pollMode};
     const r=sim(p,false,false,false);
     const i25=r.ctyRes.filter(c=>c.i>=0.25).length;
     const o25=r.ctyRes.filter(c=>c.o>=0.25).length;
@@ -986,7 +987,7 @@ function renderTeams(){
   grid.innerHTML=rows.map((c,ri)=>{
     const cur=cfg.assign[c.name];const fixed=c.name==='William Ruto';
     return `<div class="tm-row${ri>=8&&!renderTeams.all?' tm-more':''}" role="radiogroup" aria-labelledby="tmn${ri}">
-      <span class="tm-name" id="tmn${ri}"><span>${mapEsc(c.name)}</span>${roleOf(c.name)}<i style="--w:${(c.avg/rows[0].avg*100).toFixed(0)}%" aria-hidden="true"></i></span><span class="tm-avg">${c.avg.toFixed(1)}%</span>
+      <span class="tm-name" id="tmn${ri}"><span>${mapEsc(c.name)}</span>${roleOf(c.name)}<i style="--w:${(((S.pollMode==='all'?c.avgAll:c.avg)/(S.pollMode==='all'?rows[0].avgAll:rows[0].avg))*100).toFixed(0)}%" aria-hidden="true"></i></span><span class="tm-avg" title="Validated: ${c.avg.toFixed(1)}% · all-poll sensitivity: ${c.avgAll.toFixed(1)}%">${(S.pollMode==='all'?c.avgAll:c.avg).toFixed(1)}%</span>
       <span class="tm-seg">${cfg.teams.map((t,ti)=>`<label style="--tc:var(${TEAM_VARS[ti]})"><input type="radio" name="tm${ri}" value="${ti}" aria-label="${mapEsc(t)}" ${cur===ti?'checked':''} ${fixed&&ti!==0?'disabled':''}><span>${L(ti)}</span></label>`).join('')}
         <label><input type="radio" name="tm${ri}" value="-1" aria-label="Runs solo" ${!(cur>=0)?'checked':''} ${fixed?'disabled':''}><span>Solo</span></label></span>
     </div>`;}).join('')+
@@ -1576,7 +1577,7 @@ function openVwTab(tab){
   if(tab==='report'){renderExecutiveReport();}
 }
 function currentScenarioSettings(){
-  return {mode:S.mcMode,iterations:ITERS,seed:S.seed,registerMode:S.registerMode,viewMode:S.viewMode,theme:S.theme,protestVote:S.tf,incSwing:S.si,oppSwing:S.so,youthSurge:S.ys,followThrough:S.cfg.follow,teams:S.cfg.teams.map((t,i)=>`${t}: ${CAND.names.filter(n=>S.cfg.assign[n]===i).join(', ')||'nobody'}`).join(' · '),riftValley:S.reg.uda};
+  return {mode:S.mcMode,iterations:ITERS,seed:S.seed,registerMode:S.registerMode,pollMode:S.pollMode,viewMode:S.viewMode,theme:S.theme,protestVote:S.tf,incSwing:S.si,oppSwing:S.so,youthSurge:S.ys,followThrough:S.cfg.follow,teams:S.cfg.teams.map((t,i)=>`${t}: ${CAND.names.filter(n=>S.cfg.assign[n]===i).join(', ')||'nobody'}`).join(' · '),riftValley:S.reg.uda};
 }
 function qaStatusClass(status){return status==='PASS'?'qa-pass':status==='FAIL'?'qa-fail':'qa-warn';}
 function technicalEngineQA(){
@@ -1874,11 +1875,11 @@ document.addEventListener('DOMContentLoaded',()=>{
     // Full reset: assumptions, political context, polls and probability settings.
     // (Previously left regimes/polls untouched and kept a stale iteration count and theme.)
     const {reg:dReg,rt:dRt,...dSl}=DEFAULTS;
-    Object.assign(S,dSl,{shocks:[],shLog:[],timer:30,mcMode:'research',seed:'2027-baseline-001',registerMode:'current'});
+    Object.assign(S,dSl,{shocks:[],shLog:[],timer:30,mcMode:'research',seed:'2027-baseline-001',registerMode:'current',pollMode:'validated'});
     S.reg={...dReg};S.rt={...dRt};S.cfg=defaultCfg();syncRegionSliders();
     Object.keys(dSl).forEach(k=>{const el=$('#sl-'+k);if(el)el.value=S[k];});
     if(typeof renderTeams==='function')renderTeams();
-    $('#mcModeSelect')&&($('#mcModeSelect').value=S.mcMode);$('#seedInput')&&($('#seedInput').value=S.seed);$('#registerModeSelect')&&($('#registerModeSelect').value=S.registerMode);$('#viewModeSelect')&&($('#viewModeSelect').value=S.viewMode);
+    $('#mcModeSelect')&&($('#mcModeSelect').value=S.mcMode);$('#seedInput')&&($('#seedInput').value=S.seed);$('#registerModeSelect')&&($('#registerModeSelect').value=S.registerMode);$('#pollModeSelect')&&($('#pollModeSelect').value=S.pollMode);$('#viewModeSelect')&&($('#viewModeSelect').value=S.viewMode);
     syncRegimeUI();updateMcModeUI();updateViewModeLabels();updateLabels();renderAll();rShockLog();
   });
 
@@ -1890,6 +1891,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   $('#mcModeSelect')?.addEventListener('change',e=>{S.mcMode=e.target.value;updateMcModeUI();renderAll();rShockLog();});
   $('#seedInput')?.addEventListener('change',e=>{S.seed=e.target.value||'2027-baseline-001';updateMcModeUI();if(S.mcMode==='research'){renderAll();rShockLog();}});
   $('#registerModeSelect')?.addEventListener('change',e=>{S.registerMode=e.target.value||'current';renderAll();rShockLog();});
+  $('#pollModeSelect')?.addEventListener('change',e=>{S.pollMode=e.target.value||'validated';renderTeams();renderAll();rShockLog();});
   $('#viewModeSelect')?.addEventListener('change',e=>{S.viewMode=e.target.value;updateViewModeLabels();renderAll();});
   $('#themeSelect')?.addEventListener('change',e=>{S.theme=e.target.value;applyTheme();});
   updateMcModeUI();updateViewModeLabels();applyTheme();
