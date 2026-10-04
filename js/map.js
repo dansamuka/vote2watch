@@ -142,7 +142,7 @@ function card(nat){
     <div class="cty-stats">
       <span>Leader <b>${esc(lead.name)}</b> by ${p1(lead.v-(second?second.v:0))}</span>
       <span>Turnout <b>${p1(c.to)}</b></span>
-      <span>Registered <b>${(co.projectedVoters2027||0).toLocaleString('en-KE')}</b></span>
+      <span>Voter weight <b>${countyRegister(co,S.registerMode).toLocaleString('en-KE')}</b> <small>(${mapEsc(S.registerMode)})</small></span>
       <span>Votes cast <b>${Math.round(c.tv).toLocaleString('en-KE')}</b></span>
       <span>${esc(S.cfg.teams[0])} 25%+ <b>${c.i>=0.25?'Yes':'No'}</b></span>
     </div>

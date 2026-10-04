@@ -62,19 +62,32 @@ const CONTEXT_FACTS=[
 ];
 
 // ═══ CANDIDATE FIELD ═══
-// avg: polling average across all published national polls (incl. held-out ones),
-// from kenya-election-intelligence-engine data/model/polling_average_all.json
-// (as of 2026-10-01). These are the numbers shown in the Teams panel.
-//
-// Where each candidate's support sits is set per COUNTY GROUP (g), as strength
-// relative to their national level, calibrated to the July 2026 regional cuts:
-//   TIFA (Jul 24): Ruto North 61, Central Rift 49, Nyanza 30, Coast 21,
-//     Lower Eastern 15, Western 14, Mt Kenya 8 (national 24); Kalonzo Lower
-//     Eastern 58; Matiang'i Nyanza 29, Mt Kenya 18; Sifuna Western 28, Coast 27,
-//     Nairobi 22; Gachagua Mt Kenya 19.
-//   Infotrak (Jul 13): Ruto North Eastern 59, Rift 46, Nyanza 40, Eastern 19;
-//     Kalonzo Eastern 40; Matiang'i leads Central at 19 (26% undecided).
-// home: home counties (x1.5). Groups not listed default to `rest`.
+// Central baseline uses only model-eligible polls. Held-out polls remain an explicit
+// sensitivity series and do not silently enter the fitted county/ward field.
+const POLLSTER_QUALITY={
+  'TIFA Research':1.00,'Infotrak Research':1.00,'Swiss Poll International':0.82,
+  'Stats Kenya':0.55,'Politrack Africa':0.35,'Mizani Africa':0.30
+};
+function _pollWeight(p,includeHeld=false){
+  if(!p.eligible&&!includeHeld)return 0;
+  const asOf=new Date(CTX_AS_OF+'T00:00:00Z'),dt=new Date(p.date+'T00:00:00Z');
+  const days=Math.max(0,(asOf-dt)/86400000),rec=Math.exp(-days/180);
+  const sample=p.n?Math.min(1.20,Math.max(0.55,Math.sqrt(p.n/2000))):0.60;
+  const q=POLLSTER_QUALITY[p.pollster]??0.65;
+  return rec*sample*q;
+}
+function _shrinkReliability(n){return n>=4?1:n===3?0.90:n===2?0.75:n===1?0.55:0;}
+function candidatePollEstimate(name,includeHeld=false){
+  const rows=POLLS.filter(p=>p.r&&p.r[name]!==undefined&&(p.eligible||includeHeld));
+  let sw=0,sv=0;for(const p of rows){const w=_pollWeight(p,includeHeld);if(w>0){sw+=w;sv+=w*p.r[name];}}
+  const mean=sw?sv/sw:0.5,n=rows.length,rel=_shrinkReliability(n);
+  const avg=rel*mean+(1-rel)*0.5;
+  return{avg,polls:n,mean,weight:sw};
+}
+
+// Where each candidate's support sits is set per COUNTY GROUP (g), calibrated
+// to published regional cuts. youth is a modest preference gradient applied
+// around the national youth-ratio mean; it does not manufacture ward-level data.
 const COUNTY_GROUP={
   NE:['Garissa','Wajir','Mandera','Marsabit','Isiolo'],
   KAL:['Baringo','Bomet','Elgeyo/Marakwet','Kericho','Nandi','Uasin Gishu','West Pokot'],
@@ -89,22 +102,54 @@ const COUNTY_GROUP={
   MERU:['Meru','Tharaka - Nithi','Embu']
 };
 const GROUP_LABEL={NE:'North',KAL:'Kalenjin Rift',RIFT:'Mixed Rift',LUO:'Luo Nyanza',GUSII:'Gusii',WEST:'Western',NBI:'Nairobi',COAST:'Coast',KAMBA:'Ukambani',MTK:'Mt Kenya',MERU:'Meru & Embu'};
-const CANDIDATES=[
-  {name:'William Ruto',      avg:33.69,polls:10,lean:'bi',g:{NE:2.3,KAL:2.5,RIFT:1.45,LUO:1.3,GUSII:0.65,WEST:0.55,NBI:0.75,COAST:0.85,KAMBA:0.55,MTK:0.3,MERU:0.55},home:[]},
-  {name:'Kalonzo Musyoka',   avg:15.12,polls:10,lean:'bo',g:{KAMBA:4.5,NBI:1.0,COAST:1.0,MTK:0.8,MERU:0.9,RIFT:0.7,WEST:0.55,LUO:0.45,GUSII:0.45,NE:0.5,KAL:0.2},home:['Kitui']},
-  {name:'Edwin Sifuna',      avg:13.79,polls:10,lean:'bo',g:{WEST:1.8,NBI:1.5,COAST:1.7,LUO:1.0,GUSII:0.5,RIFT:0.8,KAMBA:0.4,MTK:0.3,MERU:0.3,NE:0.4,KAL:0.3},home:['Bungoma']},
-  {name:"Fred Matiang'i",    avg:11.05,polls:10,lean:'bo',g:{GUSII:5.5,LUO:0.7,MTK:1.4,MERU:1.2,NBI:1.1,RIFT:0.9,WEST:0.5,COAST:0.5,KAMBA:0.5,NE:0.6,KAL:0.4},home:[]},
-  {name:'Babu Owino',        avg:7.0,  polls:1, lean:'bo',g:{LUO:3.6,NBI:1.6,WEST:0.8,COAST:0.7,GUSII:0.5,rest:0.3},home:[]},
-  {name:'Rigathi Gachagua',  avg:5.24, polls:10,lean:'bi',g:{MTK:4.5,MERU:2.0,NBI:2.0,RIFT:1.2,rest:0.2},home:['Nyeri']},
-  {name:'Ndindi Nyoro',      avg:3.1,  polls:1, lean:'bi',g:{MTK:3.0,MERU:1.0,NBI:1.0,RIFT:0.8,rest:0.3},home:["Murang'A"]},
-  {name:'George Wajackoyah', avg:1.1,  polls:1, lean:'bo',g:{WEST:2.0,rest:0.8},home:['Kakamega']},
-  {name:'Oburu Odinga',      avg:1.0,  polls:1, lean:'bo',g:{LUO:5.0,rest:0.2},home:['Siaya']},
-  {name:'David Maraga',      avg:0.83, polls:5, lean:'bo',g:{GUSII:4.0,rest:0.7},home:['Nyamira']},
-  {name:'Martha Karua',      avg:0.83, polls:4, lean:'bi',g:{MTK:2.5,MERU:1.2,rest:0.7},home:['Kirinyaga']},
-  {name:'James Orengo',      avg:0.4,  polls:1, lean:'bo',g:{LUO:5.0,rest:0.2},home:['Siaya']},
-  {name:'Okiya Omtata',      avg:0.36, polls:1, lean:'bo',g:{WEST:2.0,rest:0.8},home:['Busia']},
-  {name:'Jimi Wanjigi',      avg:0.3,  polls:1, lean:'bi',g:{MTK:2.0,rest:0.8},home:['Nyeri']},
+
+const CANDIDATE_DEFS=[
+  {name:'William Ruto',lean:'bi',youth:-0.45,g:{NE:2.3,KAL:2.5,RIFT:1.45,LUO:1.20,GUSII:0.65,WEST:0.55,NBI:0.75,COAST:0.85,KAMBA:0.55,MTK:0.3,MERU:0.55},home:[]},
+  {name:'Kalonzo Musyoka',lean:'bo',youth:-0.25,g:{KAMBA:4.5,NBI:1.0,COAST:1.0,MTK:0.8,MERU:0.9,RIFT:0.7,WEST:0.55,LUO:0.45,GUSII:0.45,NE:0.5,KAL:0.2},home:['Kitui']},
+  {name:'Edwin Sifuna',lean:'bo',youth:1.25,g:{WEST:1.8,NBI:1.5,COAST:1.7,LUO:1.0,GUSII:0.5,RIFT:0.8,KAMBA:0.4,MTK:0.3,MERU:0.3,NE:0.4,KAL:0.3},home:['Bungoma']},
+  {name:"Fred Matiang'i",lean:'bo',youth:0.10,g:{GUSII:3.6,LUO:0.7,MTK:1.4,MERU:1.2,NBI:1.1,RIFT:0.9,WEST:0.5,COAST:0.5,KAMBA:0.5,NE:0.6,KAL:0.4},home:[]},
+  {name:'Babu Owino',lean:'bo',youth:1.10,g:{LUO:3.6,NBI:1.6,WEST:0.8,COAST:0.7,GUSII:0.5,rest:0.3},home:[]},
+  {name:'Rigathi Gachagua',lean:'bi',youth:-0.10,g:{MTK:4.5,MERU:2.0,NBI:2.0,RIFT:1.2,rest:0.2},home:['Nyeri']},
+  {name:'Ndindi Nyoro',lean:'bi',youth:0.30,g:{MTK:3.0,MERU:1.0,NBI:1.0,RIFT:0.8,rest:0.3},home:["Murang'A"]},
+  {name:'George Wajackoyah',lean:'bo',youth:0.45,g:{WEST:2.0,rest:0.8},home:['Kakamega']},
+  {name:'Oburu Odinga',lean:'bo',youth:-0.35,g:{LUO:5.0,rest:0.2},home:['Siaya']},
+  {name:'David Maraga',lean:'bo',youth:-0.10,g:{GUSII:4.0,rest:0.7},home:['Nyamira']},
+  {name:'Martha Karua',lean:'bi',youth:0.05,g:{MTK:2.5,MERU:1.2,rest:0.7},home:['Kirinyaga']},
+  {name:'James Orengo',lean:'bo',youth:-0.25,g:{LUO:5.0,rest:0.2},home:['Siaya']},
+  {name:'Okiya Omtata',lean:'bo',youth:0.35,g:{WEST:2.0,rest:0.8},home:['Busia']},
+  {name:'Jimi Wanjigi',lean:'bi',youth:0.00,g:{MTK:2.0,rest:0.8},home:['Nyeri']}
 ];
+const CANDIDATES=CANDIDATE_DEFS.map(c=>{
+  const v=candidatePollEstimate(c.name,false),a=candidatePollEstimate(c.name,true);
+  return{...c,avg:+v.avg.toFixed(4),avgAll:+a.avg.toFixed(4),polls:v.polls,pollsAll:a.polls,pollMean:+v.mean.toFixed(4),pollMeanAll:+a.mean.toFixed(4)};
+});
+
+const TRANSFER_PRIORS={
+  'Kalonzo Musyoka':{keep:.70,groups:{KAMBA:.86,NBI:.74},stay:.22,cross:.12,else:.66},
+  'Edwin Sifuna':{keep:.67,groups:{WEST:.78,NBI:.76,COAST:.72},stay:.20,cross:.10,else:.70},
+  "Fred Matiang'i":{keep:.64,groups:{GUSII:.80,MTK:.68,MERU:.68},stay:.20,cross:.12,else:.68},
+  'Babu Owino':{keep:.66,groups:{LUO:.76,NBI:.78},stay:.24,cross:.07,else:.69},
+  'Rigathi Gachagua':{keep:.62,groups:{MTK:.74,MERU:.68},stay:.22,cross:.18,else:.60},
+  'Ndindi Nyoro':{keep:.58,groups:{MTK:.70,MERU:.64},stay:.20,cross:.24,else:.56},
+  'Oburu Odinga':{keep:.30,groups:{LUO:.38},stay:.27,cross:.25,else:.48},
+  'David Maraga':{keep:.58,groups:{GUSII:.68},stay:.24,cross:.10,else:.66},
+  'Martha Karua':{keep:.54,groups:{MTK:.62},stay:.24,cross:.14,else:.62},
+  'James Orengo':{keep:.64,groups:{LUO:.74},stay:.24,cross:.07,else:.69},
+  'Okiya Omtata':{keep:.55,groups:{WEST:.63},stay:.23,cross:.09,else:.68},
+  'George Wajackoyah':{keep:.48,groups:{WEST:.56},stay:.25,cross:.22,else:.53},
+  'Jimi Wanjigi':{keep:.45,groups:{MTK:.52},stay:.25,cross:.25,else:.50}
+};
+function transferPrior(name,group){
+  const p=TRANSFER_PRIORS[name]||{keep:.55,stay:.25,cross:.18,else:.57};
+  return{keep:(p.groups&&p.groups[group])??p.keep,stay:p.stay,cross:p.cross,else:p.else};
+}
+
+const SALIENT_EVENTS=[
+  {date:'2026-09-26',region:'Coast',type:'development',measured:false,title:'Coast development tour, title deeds and project launches',note:'Post-dates the latest model-eligible regional evidence; no automatic vote uplift.'},
+  {date:'2026-09',region:'Nyanza',type:'development',measured:false,title:'High-visibility Nyanza development programme',note:'Ruto gains in July regional polls are modelled; later project hype is only a signal until measured.'},
+  {date:'2026-09',region:'National',type:'economy',measured:true,title:'Cost-of-living pressure remains material',note:'September inflation 6.8%; food and transport pressures are treated as contextual risk, not a deterministic vote penalty.'}
+];
+
 // county name → group key
 const GROUP_OF={};Object.entries(COUNTY_GROUP).forEach(([g,list])=>list.forEach(n=>GROUP_OF[n]=g));
 
