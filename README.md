@@ -1,138 +1,192 @@
-# VoteWatch 2027
+# Vote2Watch 2027
 
-Scenario model for Kenya's 2027 presidential election. Put the candidates on
-teams and the model re-runs 1,457 wards to show whether anyone wins outright,
-who meets in a run-off, how each county votes, and how exposed the result is to
-a court petition.
+Experimental, research-oriented fork of VoteWatch for Kenya's 2027 presidential election.
 
-Live: https://dansamuka.github.io/votewatch/
+**Source baseline:** copied from `dansamuka/votewatch` on 4 October 2026.  
+**Original VoteWatch is intentionally unchanged.**  
+**Live target:** https://dansamuka.github.io/vote2watch/
 
-## Using it
+Vote2Watch is a **scenario-intelligence model, not a point forecast**. It combines polling, regional political geography, coalition/ticket assumptions, voter-register scenarios, turnout, Article 138 rules and Monte Carlo uncertainty. The October 2026 overhaul deliberately removes false ward precision and separates measured evidence from political assumptions.
 
-1. **Teams** (left, or the top panel on mobile): every candidate polling in
-   2026 is listed with their polling average. Put each one on team A (Ruto's
-   side), team B, an extra team (up to four), or Solo. Then adjust
-   follow-through, swings, youth turnout, protest vote and turnout by region.
+## What changed in the audit overhaul
 
-   **Default ("Three-way split")**, a testing baseline rather than a forecast:
-   - A, Broad-based government: Ruto for president, Kithure Kindiki as running
-     mate; Oburu Odinga (ODM's government wing) on the team, off the ticket
-   - B, United opposition: Kalonzo Musyoka for president, Edwin Sifuna as
-     running mate; Babu Owino, Gachagua, Maraga, Karua, Orengo and Omtata on
-     the team, off the ticket
-   - C, Third force: Fred Matiang'i for president, Ndindi Nyoro as running
-     mate (their bases split the opposition vote instead of only leaking)
-   - running alone: Wajackoyah and Wanjigi
-   - 65% of a running mate's supporters follow (bases of former rivals
-     transfer poorly); the presidential candidate keeps all their supporters
-   - preset "No third force" keeps Matiang'i and Nyoro with the opposition
-     for comparison
-   - turnout by region: Mt Kenya −12%, Rift Valley +2%, Nyanza −3%,
-     Ukambani +4%, Coast −5%, Western −5% (relative to each region's base)
-   - Research mode: 5,000 seeded runs. A quick 400-run estimate shows first
-     ("refining…") and the full run finishes in the background.
+### 1. Canonical election geography
 
-   **Tickets.** Each team with two or more members has a presidential candidate
-   and a running mate (Tickets, in the sidebar). Anyone else on the team is
-   "off the ticket": by default 55% of their supporters follow, and of the rest
-   30% stay home (lowering turnout where that candidate is strong), 40% cross
-   to the other main side (team A, or team B for team A's own members) and
-   30% vote for someone else. These splits are assumptions, adjustable under
-   "Where the others go"; the cross-over share varies ±25% between simulations.
+- 47 counties
+- 290 constituencies
+- **1,450 County Assembly wards**
+- 2022 ward register reconciles exactly to **22,102,532 voters**
+- ward hierarchy comes from the governed Kenya Data Atlas legal-order transcription
+- ward registered-voter counts come from the IEBC 2022 ward schedule used by the Atlas
 
-   **Ruto's running mate** can also be someone outside the presidential polls,
-   with a small assumed regional pull for team A: Kithure Kindiki (+3 Meru &
-   Embu, +1 Mt Kenya, +2 more in Tharaka-Nithi), Anne Waiguru (+2 Mt Kenya,
-   +1 Meru & Embu, +2 more in Kirinyaga), John Mbadi (+2 Luo Nyanza, +2 more in
-   Homa Bay), Gladys Wanga (+2.5 Luo Nyanza, +2.5 more in Homa Bay), Musalia
-   Mudavadi (+2 Western, +2.5 more in Vihiga) or Moses Wetang'ula (+1.5 Western,
-   +3 more in Bungoma). With
-   Mbadi or Wanga, Oburu Odinga's supporters follow as if he were on the
-   ticket. Or pick an opposition defector: they join team A, and because they
-   are crossing sides only the off-ticket share of their supporters (55%)
-   follows. Edit `RM_PICKS` in `js/app.js` to add names or change effects.
+The previous 1,457-row pseudo-ward structure is retired.
 
-   Eugene Wamalwa and Jeremiah Kioni have no published presidential polling,
-   so they are not separate entries in the model.
-2. **Result** in the header: the most likely outcome and the run-off pairing.
-3. **Tabs**: Overview, Run-off, Swing counties, Scenarios (ready-made
-   line-ups), Article 138, Map (click a county for its result and wards),
-   Dispute risk, Signals (latest polls and key facts), Report.
-4. **Report** (and Export): a dashboard. Teams first (each ticket, first-round
-   share and votes, 25%-county meter, chance of winning, who else is on the
-   team), then four headline figures, round one, the run-off with vote counts,
-   what it means and where it is decided, then running-mate options and
-   assumptions. Prints as three A4 landscape pages: at a glance, the race,
-   the detail. CSVs from Export.
+### 2. Honest ward resolution
 
-Header buttons switch between public and analyst wording and between the light
-and dark themes (light and public are the defaults; the choice is remembered).
-Technical tables sit in "Technical detail" sections, closed by default.
+Ward names and 2022 registered-voter counts are genuine ward-level records.
+
+Political preference and turnout are **not** independently inferred at ward level yet. They remain constituency-imputed and every ward result carries:
+
+```
+basis: "constituency_imputed"
+```
+
+The UI and CSV export explicitly disclose this. Wards within a constituency therefore intentionally retain the same political-share estimate until defensible ward-specific covariates or results are available.
+
+### 3. Voter-register scenarios
+
+The model no longer applies one uniform national growth factor to every county.
+
+Three register modes are available:
+
+- **Current proxy** — 2022 register plus the IEBC national total of 2,936,516 new registrations reported by 20 August 2026. County allocation uses the official 28 April 2026 ECVR county shares. Total proxy: **25,039,048**.
+- **IEBC 2027 target scenario** — approximately **28.5 million** voters, allocated using the same official April county enrolment distribution. This is a scenario, not a gazetted register.
+- **2022 certified register** — **22,102,532**.
+
+The April county ECVR total reconciles to **2,345,476**.
+
+### 4. Poll governance
+
+The central model now uses only **model-eligible / validated polls** and weights them by:
+
+- recency
+- sample size
+- pollster-quality prior
+
+Held-out polls such as Mizani and Politrack are not silently embedded in the central baseline. They are available through a clearly labelled **All published polls — sensitivity only** mode, with lower pollster-quality weights.
+
+Candidates supported by only one observation are shrunk strongly toward a small prior instead of being treated as equally certain to repeatedly polled candidates.
+
+### 5. Candidate and youth geography
+
+National candidate levels are fitted to regional profiles through iterative proportional fitting.
+
+The starting pattern uses:
+
+- regional polling strength
+- home-county effects
+- softened 2022 constituency lean
+- a modest youth-preference gradient
+
+The youth control still changes turnout, but candidate profiles can now also respond modestly to the youth composition of an area. This is deliberately conservative; it does not manufacture independent ward estimates.
+
+### 6. Coalition transfers
+
+The old universal rule — one off-ticket follow-through rate plus one 30/40/30 stay/cross/elsewhere split — has been replaced by **candidate × region transfer priors**.
+
+For example, Babu Owino supporters in Luo Nyanza, Gachagua supporters in Mt Kenya, Sifuna supporters in Western/Nairobi and Matiang'i supporters in Gusii no longer leak to a rival at the same rate.
+
+The UI's follow-through/leakage controls now scale these priors rather than overwrite them with one national matrix.
+
+### 7. Run-off model
+
+The central run-off no longer assumes eliminated voters split 50/50.
+
+Transfers are modelled by:
+
+- eliminated candidate/team
+- finalist pairing
+- county group
+- correlated transfer uncertainty
+
+A politician's endorsement can therefore over- or under-perform nationally in one simulated election instead of transfer errors averaging away county by county.
+
+The Run-off tab still shows 70/30 sensitivity bounds.
+
+### 8. Two uncertainty layers
+
+The site now distinguishes:
+
+1. **Conditional simulation uncertainty** — random uncertainty inside the selected coalition/poll/register scenario.
+2. **Structural political uncertainty** — the range across the preset coalition paths.
+
+The structural range is not presented as a probability interval.
+
+### 9. Projects, rallies and hype
+
+Development tours, project announcements and other high-salience political events are tracked as **signals**.
+
+They do **not** automatically add vote points. An event can enter calibration only when subsequent polling or other defensible evidence measures an effect.
+
+### 10. Automated model gate
+
+`scripts/validate-model.mjs` runs before every GitHub Pages build and checks:
+
+- 47 counties
+- 290 constituencies
+- 1,450 wards
+- exact 2022 ward-register reconciliation
+- current and target voter-register totals
+- county ward counts
+- constituency-imputation disclosure
+- poll-governance separation
+- national/county share normalization
+- Luo-Nyanza and Gusii calibration guardrails
+- non-50/50 central run-off behaviour
+- visible structural uncertainty
+
+A failed model check blocks deployment.
+
+## Current default scenario
+
+The default remains a **testing scenario**, not a forecast:
+
+- **Team A:** William Ruto / Kithure Kindiki, with the government-aligned ODM wing
+- **Team B:** Kalonzo Musyoka / Edwin Sifuna, with other opposition principals
+- **Third force:** Fred Matiang'i / Ndindi Nyoro
+- remaining candidates can run solo or be reassigned interactively
+
+With the 4 October 2026 validated-poll/current-register calibration, the deterministic default is approximately:
+
+| Side | Share |
+|---|---:|
+| Team A | 38.6% |
+| Team B | 37.6% |
+| Others | 23.9% |
+
+The all-published-polls sensitivity is approximately 40.3% / 36.8% / 22.9%.
+
+These numbers will change as source data and coalition settings change.
 
 ## Structure
 
 ```
-index.html              markup: header, Teams sidebar, tab panels
-css/tokens.css          all design tokens: surfaces, ink, team + lifecycle colours, map ramps,
-                        8pt spacing, type scale, shadows, motion (light default; dark via
-                        <html data-theme="dark">; print overrides)
-css/app.css             component styles, one home per selector (base · shell · header · tabs ·
-                        sidebar · surfaces · text · controls · tables · graphics · map · report)
-js/viz.js               hero ribbon + Kenya dot map, outcome dots, margin strip, Article 138
-                        gates, run-off flow, 25% threshold strip
-js/app.js               engine (candidate field, teams, simulation, run-off) and rendering
-js/enhance.js           tabs (ARIA, sliding indicator), docking header verdict, county band,
-                        first-visit guide
-docs/DESIGN-SPEC.md     v9 design audit and spec (colour contract, type scale, motion tokens)
+index.html              application shell and controls
+css/tokens.css          design tokens
+css/app.css             components and responsive/print rules
+data/context.js         polls, candidate profiles, transfer priors, salient events
+data/counties.js        county baselines and voter-register scenarios
+data/wards.js           canonical 1,450 wards + 2022 ward voters + imputation flags
+data/kenya-geo.js       county geometry
+data/transport.js       synthetic event-spillover network
+js/app.js               model, simulations, Article 138, report rendering
+js/viz.js               charts and race visualisations
 js/map.js               county map and county panel
-data/wards.js           ward-level dataset  (const WD)
-data/counties.js        county dataset      (const CO)
-data/transport.js       road links for live-event spillover (synthetic)
-data/context.js         candidate polling averages and regional profiles, national polls, key facts
-data/kenya-geo.js       Kenya + 47 county outlines + lakes, pre-projected (from the Projects Atlas; geoBoundaries / Natural Earth, public domain)
-docs/AUDIT.md           engine and data audit, method and calibration notes
+js/enhance.js           navigation and interaction enhancements
+scripts/validate-model.mjs governed model/data regression tests
+scripts/build.mjs       static bundle build
+docs/AUDIT.md           audit trail and methodology decisions
 ```
-
-## Design rules
-
-- **Colour contract.** Team hues identify sides (A orange, B blue, C teal,
-  D violet, others slate) and never mean good or bad. Red, green and amber mean
-  state (risk, passes, watch) and never identify a side. Blue accent marks
-  interactive and selected things only.
-- **Public vs analyst view.** Technical columns carry `class="opt"` and method
-  notes `class="analyst-only"`; both are hidden in public view. A "More
-  columns" button (`data-more`) reveals one table's extra columns.
-- **Cascade layers.** tokens < base < components < utilities < overrides
-  (reduced motion, touch targets, print). Add new component rules inside
-  `@layer components`.
-- **Touch.** On coarse pointers every control is at least 44px.
-- **Spacing and type** come from tokens (`--sp-*`, `--t-*`); avoid raw px.
 
 ## Run locally
 
-No build step needed for development. Serve the folder:
-
 ```bash
+node scripts/validate-model.mjs
 python -m http.server 8000
 ```
 
-## Deploy
+For the production bundle:
 
-GitHub Pages runs `.github/workflows/static.yml` on every push to `main`. It
-runs `node scripts/build.mjs`, which bundles and minifies the stylesheets and
-scripts listed in `index.html` into two content-hashed files in `_site/`
-(1 CSS + 1 JS instead of 11 requests) and publishes that folder. To preview
-the production build locally, run the same command and serve `_site/`.
+```bash
+node scripts/build.mjs
+```
 
-## Updating
+## Responsible use
 
-- **New polls / candidates:** edit `CANDIDATES` (averages from the
-  kenya-election-intelligence-engine `polling_average_all.json`) and `POLLS` in
-  `data/context.js`.
-- **Preset line-ups:** `SCENS` near the top of `js/app.js`.
+Do not describe ward percentages as ward forecasts. They are constituency-imputed estimates attached to the official ward hierarchy for drill-down and voter-weighting purposes.
 
-## Caveats
+Do not describe Monte Carlo win shares as unconditional probabilities of the 2027 election. They are conditional on the selected polling, coalition, transfer and register scenario.
 
-Ward patterns come from 2022 results and assumed regional profiles; national
-levels come from published polls, some with undisclosed methods. Treat output
-as scenario analysis, not a forecast. See `docs/AUDIT.md`.
+Do not treat the 28.5 million IEBC planning target as a final register.
+
+See `docs/AUDIT.md` for the detailed audit history and calibration notes.
