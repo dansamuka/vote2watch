@@ -607,7 +607,7 @@ const LEVERS=[
   {s:'red',t:'Sifuna joins or stays out',d:'Linda Mwananchi endorsed Sifuna in September; its party is due in October.',i:'Sifuna on team B, on his own team, or Solo'},
   {s:'red',t:'Ruto–ODM pact survives the zoning row',d:'ODM wants Nyanza, parts of Western and the Coast zoned for its candidates.',i:'Oburu (and Orengo) on Ruto\'s side or not'},
   {s:'amb',t:'Mt Kenya realignment',d:'Gachagua and Kindiki compete for the region Ruto won in 2022.',i:'Gachagua\'s team choice and the swing sliders'},
-  {s:'amb',t:'New-voter registration',d:'About 5.7 million new, mostly young voters are expected to register before 2027.',i:'Youth turnout slider'},
+  {s:'amb',t:'New-voter registration',d:'IEBC reported 2.94m new registrations by 20 Aug 2026 and is planning toward an approximately 28.5m 2027 register.',i:'Register scenario plus youth turnout/preference layer'},
   {s:'grn',t:'Cost of living and protests',d:'Fuel, tax and Gen-Z protest cycles drive the urban and youth vote.',i:'Swing to team B, protest vote'},
   {s:'grn',t:'New national polls',d:'Candidate averages update when the polling data does.',i:'Teams panel percentages'}
 ];
@@ -789,8 +789,8 @@ function rRunoff(r,mc_){
   const pr=r2pair(nat),A=blocName(pr.a),B=blocName(pr.b),E=blocName(pr.e);
   const BC=new Proxy({},{get:(_,k)=>VZ.ink(k)});
   const sh=k=>k==='inc'?nat.i:k==='opp'?nat.o:((nat.others||[]).find(o=>o.key===k)||{share:0}).share;
-  // one vocabulary and one order everywhere: lean to A · split evenly · lean to B (same as the flow toggle)
-  const dirs=[{k:'toA',l:`Others lean to ${A}`,c:VZ.col(pr.a)},{k:'spl',l:'Others split evenly',c:'var(--others)'},{k:'toB',l:`Others lean to ${B}`,c:VZ.col(pr.b)}];
+  // Central case uses candidate/region transfer priors; the outer cards are sensitivity bounds.
+  const dirs=[{k:'toA',l:`70% of eliminated votes to ${A}`,c:VZ.col(pr.a)},{k:'model',l:'Modelled candidate/region transfers',c:'var(--others)'},{k:'toB',l:`70% of eliminated votes to ${B}`,c:VZ.col(pr.b)}];
   if($('#flowA'))$('#flowA').textContent=`Lean to ${A}`;
   if($('#flowB'))$('#flowB').textContent=`Lean to ${B}`;
   const pairP=(mc_.pairs||{})[[pr.a,pr.b].sort().join('|')]||0;
@@ -809,9 +809,9 @@ function rRunoff(r,mc_){
     </div>`;
   }).join('');
 
-  VZ.flow($('#roFlow'),r,S.flowDir||'spl');
+  VZ.flow($('#roFlow'),r,S.flowDir||'model');
 
-  const ro=r2sim(ctyRes,nat,'spl');
+  const ro=r2sim(ctyRes,nat,'model');
   const marg=ro.r2cty.filter(c=>Math.abs(c.r2a-0.5)<0.10).sort((x,y)=>Math.abs(x.r2a-0.5)-Math.abs(y.r2a-0.5));
   $('#roCtbl').innerHTML=`<thead><tr><th>County</th><th>${A} share</th><th>Leader</th><th>Region</th></tr></thead>
   <tbody>${marg.map(c=>`<tr>
@@ -883,17 +883,17 @@ function rTipping(r,f,i25){
 
 // Vote counts: 6,123,456 → "6.12M"; under a million → "845K"
 function fmtVotes(v){v=Math.round(v||0);return v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?Math.round(v/1e3)+'K':String(v);}
-const REG_TOTAL=CO.reduce((s,c)=>s+(c.projectedVoters2027||0),0);
+function registerTotal(mode=S.registerMode){return CO.reduce((z,c)=>z+countyRegister(c,mode||'current'),0);}
 function rScen(){
   // Each preset: one deterministic run plus a seeded 200-draw Monte Carlo, so the
   // cards are stable between renders (previously 60 unseeded draws).
   const N_SC=200;
   // Presets ignore the sliders and switches, so only the seed and poll anchor
   // matter: cache so slider moves stay fast.
-  const key=JSON.stringify([S.seed,S.reg]);
+  const key=JSON.stringify([S.seed,S.reg,S.registerMode]);
   if(rScen._key!==key){rScen._key=key;rScen._res=null;}
   const results=rScen._res||(rScen._res=SCENS.map(sc=>{
-    const p={...sc.p,cfg:sc.cfg};
+    const p={...sc.p,cfg:sc.cfg,registerMode:S.registerMode};
     const r=sim(p,false,false,false);
     const i25=r.ctyRes.filter(c=>c.i>=0.25).length;
     const o25=r.ctyRes.filter(c=>c.o>=0.25).length;
@@ -1576,13 +1576,14 @@ function openVwTab(tab){
   if(tab==='report'){renderExecutiveReport();}
 }
 function currentScenarioSettings(){
-  return {mode:S.mcMode,iterations:ITERS,seed:S.seed,viewMode:S.viewMode,theme:S.theme,protestVote:S.tf,incSwing:S.si,oppSwing:S.so,youthSurge:S.ys,followThrough:S.cfg.follow,teams:S.cfg.teams.map((t,i)=>`${t}: ${CAND.names.filter(n=>S.cfg.assign[n]===i).join(', ')||'nobody'}`).join(' · '),riftValley:S.reg.uda};
+  return {mode:S.mcMode,iterations:ITERS,seed:S.seed,registerMode:S.registerMode,viewMode:S.viewMode,theme:S.theme,protestVote:S.tf,incSwing:S.si,oppSwing:S.so,youthSurge:S.ys,followThrough:S.cfg.follow,teams:S.cfg.teams.map((t,i)=>`${t}: ${CAND.names.filter(n=>S.cfg.assign[n]===i).join(', ')||'nobody'}`).join(' · '),riftValley:S.reg.uda};
 }
 function qaStatusClass(status){return status==='PASS'?'qa-pass':status==='FAIL'?'qa-fail':'qa-warn';}
 function technicalEngineQA(){
   const r=S.res||sim({},false,true,true);const mapQ=VW_MAP_STATE?.diagnostics||mapDiagnostics(VW_MAP_STATE?.rows||[]);const sharesOk=r.ctyRes.every(c=>Math.abs((c.i+c.o+c.t)-1)<0.002);const ctyOk=r.ctyRes.length===47;const wardOk=(S.wards||r.wardRes||[]).length>=1400;const pollOk=!!S.cfg&&Array.isArray(S.cfg.teams);
+  const wardRows=S.wards||r.wardRes||[],basisOk=wardRows.length===1450&&wardRows.every(w=>w.basis==='constituency_imputed');
   const checks=[
-    ['County result count',ctyOk,`${r.ctyRes.length}/47`],['Ward drilldown rows',wardOk,`${(S.wards||r.wardRes||[]).length}/1,457`],['Shares normalize to 100%',sharesOk,sharesOk?'within tolerance':'check county sums'],['Article 138 uses county vote share',true,'candidate share ≥25%, not turnout'],['Teams configured',pollOk,`${S.cfg.teams.length} teams`],['MC mode configured',!!MC_MODES[S.mcMode],`${S.mcMode} · ${ITERS}`],['Map county data match',(mapQ.count||0)===47,`${mapQ.count||0}/47`],['Map geometry match',(mapQ.boundaryMatched||0)>=45,`${mapQ.boundaryMatched||0}/47`]
+    ['County result count',ctyOk,`${r.ctyRes.length}/47`],['Canonical ward rows',wardRows.length===1450,`${wardRows.length}/1,450`],['Ward inference disclosure',basisOk,basisOk?'all constituency-imputed':'check basis labels'],['Shares normalize to 100%',sharesOk,sharesOk?'within tolerance':'check county sums'],['Article 138 uses county vote share',true,'candidate share ≥25%, not turnout'],['Teams configured',pollOk,`${S.cfg.teams.length} teams`],['Register scenario',!!REGISTER_MODES[S.registerMode],`${S.registerMode} · ${N.format(registerTotal())}`],['MC mode configured',!!MC_MODES[S.mcMode],`${S.mcMode} · ${ITERS}`],['Map county data match',(mapQ.count||0)===47,`${mapQ.count||0}/47`],['Map geometry match',(mapQ.boundaryMatched||0)>=45,`${mapQ.boundaryMatched||0}/47`]
   ];
   const fails=checks.filter(x=>!x[1]).length;return {checks,status:fails?'WARNING':'PASS'};
 }
@@ -1726,16 +1727,16 @@ function renderExecutiveReport(){
 
   <section class="rd-detail">
     <article class="rd-tile">
-      <header class="rd-th"><h4>Round one</h4><span>${N.format(Math.round(n.v))} votes · turnout ${pct(n.v/REG_TOTAL,0)}</span></header>
+      <header class="rd-th"><h4>Round one</h4><span>${N.format(Math.round(n.v))} votes · turnout ${pct(n.v/registerTotal(),0)} · ${S.registerMode} register scenario</span></header>
       <div class="rd-r1"><div class="rs"><div class="rs-segs">${r1}</div></div><span class="rd-half" aria-hidden="true"><i>50% + 1</i></span></div>
       <ul class="rd-legend">${field.slice(0,5).map(c=>`<li style="--c:${col(c.k)}"><i></i><span>${mapEsc(c.l)}</span><b>${pct(c.v)}</b></li>`).join('')}</ul>
       <p class="rd-note">Outright win needs over 50% and 25% in 24 counties. ${field[0].v<0.5?`${mapEsc(field[0].l)} is ${((0.5-field[0].v)*100).toFixed(1)} points short of 50%.`:''}</p>
     </article>
     <article class="rd-tile">
-      <header class="rd-th"><h4>Run-off</h4><span>others split evenly</span></header>
+      <header class="rd-th"><h4>Run-off</h4><span>candidate/region transfer model</span></header>
       <div class="rd-h2h">${[[fa,roS.shareA,roS.votesA,carriedA],[fb,roS.shareB,roS.votesB,47-carriedA]].map(([k,s_,v,cc],j)=>`<div class="rd-fin${j?' is-b':''}"><span>${mapEsc(nm(k))}</span><b style="color:${ink(k)}">${pct(s_)}</b><em>${N.format(Math.round(v))} votes · ${cc} counties</em></div>`).join('')}</div>
       <div class="rd-h2hbar"><i style="width:${(roS.shareA*100).toFixed(2)}%;background:${col(fa)}"></i><i style="width:${(roS.shareB*100).toFixed(2)}%;background:${col(fb)}"></i><span></span></div>
-      <ul class="rd-leans">${roV.map(({d,res})=>`<li class="${d==='spl'?'is-cur':''}"><span>${d==='toA'?`Others lean to ${mapEsc(nm(fa))}`:d==='toB'?`Others lean to ${mapEsc(nm(fb))}`:'Others split evenly'}</span><b style="color:${ink(res.winner)}">${mapEsc(nm(res.winner))} ${pct(Math.max(res.shareA,res.shareB))}</b><em>${fmtVotes(res.votesA)} – ${fmtVotes(res.votesB)}</em></li>`).join('')}</ul>
+      <ul class="rd-leans"><li class="is-cur"><span>Modelled candidate/region transfers</span><b style="color:${ink(roS.winner)}">${mapEsc(nm(roS.winner))} ${pct(Math.max(roS.shareA,roS.shareB))}</b><em>${fmtVotes(roS.votesA)} – ${fmtVotes(roS.votesB)}</em></li>${roV.filter(x=>x.d!=='spl').map(({d,res})=>`<li><span>${d==='toA'?`70% of eliminated votes to ${mapEsc(nm(fa))}`:`70% of eliminated votes to ${mapEsc(nm(fb))}`}</span><b style="color:${ink(res.winner)}">${mapEsc(nm(res.winner))} ${pct(Math.max(res.shareA,res.shareB))}</b><em>${fmtVotes(res.votesA)} – ${fmtVotes(res.votesB)}</em></li>`).join('')}</ul>
     </article>
   
     <article class="rd-tile"><header class="rd-th"><h4>What this means</h4></header>
