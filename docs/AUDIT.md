@@ -1,3 +1,186 @@
+# Vote2Watch model audit — v8.0 (4 October 2026)
+
+This section documents the research overhaul applied **only to `dansamuka/vote2watch`**. The source `dansamuka/votewatch` repository was mirrored first and has not been modified by this work.
+
+## v8.0 objective
+
+The prior engine had become a useful scenario calculator, but its display precision exceeded its evidence in three places: ward geography, coalition transfers and probability language. v8.0 keeps the interactive scenario architecture while making evidence level and uncertainty explicit.
+
+## Governed geography and voter weights
+
+The old model contained 1,457 rows labelled as wards. v8.0 replaces these with the Kenya Data Atlas legal-order hierarchy:
+
+- 47 counties
+- 290 constituencies
+- **1,450 County Assembly wards**
+- official 2022 ward registered-voter schedule totalling **22,102,532**
+
+The ward hierarchy and voter counts are direct records. Political preference and turnout are still inherited from constituency-level baselines. Every ward record therefore carries `basis: "constituency_imputed"`, and the UI/export labels the political shares with that caveat.
+
+This is intentional. A named ward is no longer allowed to imply a ward-specific estimate when the model has no independent ward evidence.
+
+### Register modes
+
+| Mode | Total | Treatment |
+|---|---:|---|
+| 2022 certified | 22,102,532 | direct certified base |
+| Current proxy | 25,039,048 | 2022 base + 2,936,516 national new registrations reported by 20 Aug 2026 |
+| IEBC 2027 target scenario | 28,500,000 | planning scenario only |
+
+The last two modes allocate additions geographically using the **official 28 Apr 2026 ECVR county distribution**, whose 47 county additions sum to **2,345,476**. They are weighting scenarios, not a claim that a 2027 register has already been gazetted.
+
+## Poll governance
+
+The engine previously displayed held-out polls as excluded while its candidate averages could still contain them.
+
+v8.0 separates the two universes:
+
+**Validated baseline**
+- only model-eligible polls
+- exponential recency weighting
+- sample-size weighting
+- pollster-quality prior
+
+**All-polls sensitivity**
+- adds held-out polls explicitly
+- held-out pollsters retain lower quality weights
+- selectable by the user; never silently substituted for the baseline
+
+Sparse candidates are shrunk toward a small prior. A candidate with one observation no longer receives the same certainty as Ruto, Kalonzo, Sifuna, Matiang'i or Gachagua.
+
+At the 4 Oct calibration the leading candidate inputs are approximately:
+
+| Candidate | Validated | All-polls sensitivity |
+|---|---:|---:|
+| William Ruto | 29.0% | 31.9% |
+| Kalonzo Musyoka | 14.4% | 14.6% |
+| Edwin Sifuna | 10.7% | 12.1% |
+| Fred Matiang'i | 12.8% | 11.7% |
+| Rigathi Gachagua | 5.4% | 5.4% |
+
+These are model inputs after weighting/shrinkage, not raw poll results.
+
+## Regional candidate field
+
+Candidate national shares are fitted across the geography by iterative proportional fitting. The seed pattern is:
+
+`regional strength × softened 2022 constituency lean × home effect × modest youth gradient`
+
+The fit preserves the national candidate totals while allowing published regional evidence to determine where support sits.
+
+The youth term is deliberately modest. It acknowledges measured age differences in candidate preference without creating unsupported ward-level variation.
+
+## Coalition transfer model
+
+The universal off-ticket transfer matrix is retired.
+
+v8.0 uses candidate × county-group priors. A supporter's probability of following a coalition now varies by politician and political geography. Examples:
+
+- Babu Owino: stronger follow-through in Luo Nyanza/Nairobi and very low direct cross-over to the incumbent
+- Edwin Sifuna: stronger follow-through in Western/Nairobi/Coast
+- Rigathi Gachagua and Ndindi Nyoro: separate Mt Kenya/Meru priors
+- Fred Matiang'i: stronger Gusii follow-through
+- Oburu Odinga: deliberately lower coalition-transfer certainty despite ODM institutional alignment
+
+The existing UI sliders remain useful but now **scale these priors** instead of imposing one universal 55% + 30/40/30 rule.
+
+This directly fixes the main v7.3 distortion where coalition leakage pushed the incumbent side above 50% in Kisumu and Migori.
+
+## County calibration after the transfer fix
+
+Validated-poll/current-register deterministic default:
+
+| Geography | Team A | Team B | Others |
+|---|---:|---:|---:|
+| National | **38.6%** | **37.6%** | **23.9%** |
+| Luo Nyanza | **38.5%** | **39.4%** | **22.2%** |
+| Gusii | **20.4%** | **20.9%** | **58.7%** |
+| Mt Kenya | **15.7%** | **46.0%** | **38.4%** |
+| Western | **24.7%** | **48.4%** | **26.9%** |
+| Coast | **33.6%** | **46.0%** | **20.4%** |
+
+The all-polls sensitivity moves the national default to approximately **40.3 / 36.8 / 22.9**.
+
+These are scenario outputs, not forecasts. Their purpose is to make the implications of a line-up and evidence set internally coherent.
+
+### Calibration guardrails
+
+The automated model test currently requires:
+
+- Kisumu and Migori Team A < 48% under the default calibration
+- Kisii and Nyamira third-force share within a deliberately broad 45–65% band
+- every national and county vote-share vector to sum to 100%
+
+These are regression guardrails, not claims that the true vote lies at the midpoint.
+
+## Youth and cohort effects
+
+Youth composition now affects:
+1. turnout, through the existing youth-turnout control; and
+2. candidate preference modestly through candidate youth coefficients.
+
+The preference effect is centred around the national youth-ratio mean and cannot create independent ward effects because ward political covariates remain constituency-imputed.
+
+## Development projects, rallies and hype
+
+High-salience events are stored in `SALIENT_EVENTS`.
+
+The engine does **not** automatically award vote points for a project launch, development tour, title-deed programme, rally or media cycle. Events are displayed as signals with an `awaiting measurement` style note unless subsequent polling provides a defensible calibration.
+
+This prevents double-counting political visibility already reflected in polls.
+
+## Run-off model
+
+The old central run-off used a 50/50 split of eliminated voters.
+
+v8.0 instead transfers each eliminated contestant's votes using:
+- candidate identity
+- county group
+- finalist pairing
+- a correlated transfer shock
+
+The correlated shock is important. If an endorsement under-performs, it now under-performs across that contestant's electorate in the same simulated election rather than being averaged away over 47 counties.
+
+The Run-off tab retains explicit 70/30 sensitivity bounds.
+
+At the current deterministic default, the modelled run-off is approximately **44.8 / 55.2** against Team A. In a 2,000-draw validation run with wide transfer uncertainty, the conditional run-off winner split was roughly **10% Team A / 90% Team B**. That is **conditional on the selected default coalition**, not an unconditional election probability.
+
+## Two uncertainty layers
+
+The UI distinguishes:
+
+### Conditional uncertainty
+Monte Carlo variation while the selected coalition, polling universe, register mode and transfer structure are held fixed.
+
+A 2,000-draw validation run put Team A's first-round 10–90 range around **35.4–41.4%**.
+
+### Structural uncertainty
+Deterministic variation across the preset coalition paths.
+
+The current preset set puts Team A around **35.7–39.5%** under the validated/current baseline.
+
+Neither range captures every possible 2027 political event. Structural scenarios should expand as credible new coalition paths emerge.
+
+## Deployment gate
+
+`scripts/validate-model.mjs` now blocks deployment unless the governed invariants pass. The GitHub Pages workflow runs it before the static build.
+
+The test checks:
+- 47 counties
+- 290 constituencies
+- 1,450 wards
+- 22,102,532 certified ward voters
+- current proxy and 28.5m target totals
+- exact county ward counts
+- imputation disclosure
+- poll baseline/sensitivity separation
+- share normalization
+- key regional calibration bounds
+- non-50/50 modelled run-off
+- structural scenario range
+
+---
+
 # Engine and data audit (v5.0–7.0, October 2026)
 
 Scope: the scenario engine in `js/app.js` (`sim`, `mc`, `r2sim`, `disRisk`,
