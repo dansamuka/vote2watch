@@ -497,7 +497,7 @@ function contestantNames(k,nat){
   const idxs=k==='inc'?(nat.A?.members||[]):k==='opp'?(nat.B?.members||[]):((nat.others||[]).find(o=>o.key===k)?.members||[]);
   return idxs.map(i=>CAND.names[i]).filter(Boolean);
 }
-function modelTransferToA(k,a,b,c,nat,noise=false){
+function modelTransferToA(k,a,b,c,nat,shock=0){
   const group=GROUP_OF[c.name]||null,names=contestantNames(k,nat);
   const incMean=names.length?names.reduce((z,n)=>z+runoffIncShare(n,group),0)/names.length:0.22;
   let mean;
@@ -506,7 +506,7 @@ function modelTransferToA(k,a,b,c,nat,noise=false){
     const leanOpp=names.length?names.reduce((z,n)=>z+((CANDIDATES.find(x=>x.name===n)?.lean==='bo')?0.72:0.45),0)/names.length:0.58;
     mean=a==='opp'?leanOpp:1-leanOpp;
   }else mean=0.5;
-  return clamp(mean+(noise?rng()*0.07:0),0.03,0.97);
+  return clamp(mean+shock,0.03,0.97);
 }
 // dir: model = candidate/region priors; toA/toB/spl are sensitivity bounds.
 function r2sim(ctyRes,nat,dir='model',noise=false){
@@ -514,13 +514,17 @@ function r2sim(ctyRes,nat,dir='model',noise=false){
   const oi=k=>(nat.others||[]).find(x=>x.key===k)?.idx;
   const v=(c,k)=>k==='inc'?c.iv:k==='opp'?c.ov:(c.oc?c.oc[oi(k)]:0)||0;
   const keys=['inc','opp',...(nat.others||[]).map(o=>o.key)];
+  // Transfer uncertainty is correlated within an eliminated contestant's electorate:
+  // if their endorsement under-performs, it under-performs across counties rather than
+  // being washed out by hundreds of independent local draws.
+  const transferShock=Object.fromEntries(keys.map(k=>[k,noise?rng()*0.10:0]));
   let aV=0,bV=0;
   const r2cty=ctyRes.map(c=>{
     let ra=v(c,a),rb=v(c,b);
     for(const k of keys){
       if(k===a||k===b)continue;
       const vk=v(c,k);if(!vk)continue;
-      const toA=dir==='toA'?0.70:dir==='toB'?0.30:dir==='spl'?0.50:modelTransferToA(k,a,b,c,nat,noise);
+      const toA=dir==='toA'?0.70:dir==='toB'?0.30:dir==='spl'?0.50:modelTransferToA(k,a,b,c,nat,transferShock[k]||0);
       ra+=vk*toA;rb+=vk*(1-toA);
     }
     const t=ra+rb||1;aV+=ra;bV+=rb;
