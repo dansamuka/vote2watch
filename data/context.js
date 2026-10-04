@@ -74,7 +74,7 @@ function _pollWeight(p,includeHeld=false){
   const days=Math.max(0,(asOf-dt)/86400000),rec=Math.exp(-days/180);
   const sample=p.n?Math.min(1.20,Math.max(0.55,Math.sqrt(p.n/2000))):0.60;
   const q=POLLSTER_QUALITY[p.pollster]??0.65;
-  return rec*sample*q*(p.eligible?1:0.25);
+  return rec*sample*q;
 }
 function _shrinkReliability(n){return n>=4?1:n===3?0.90:n===2?0.75:n===1?0.55:0;}
 function candidatePollEstimate(name,includeHeld=false){
@@ -107,7 +107,7 @@ const CANDIDATE_DEFS=[
   {name:'William Ruto',lean:'bi',youth:-0.45,g:{NE:2.3,KAL:2.5,RIFT:1.45,LUO:1.20,GUSII:0.65,WEST:0.55,NBI:0.75,COAST:0.85,KAMBA:0.55,MTK:0.3,MERU:0.55},home:[]},
   {name:'Kalonzo Musyoka',lean:'bo',youth:-0.25,g:{KAMBA:4.5,NBI:1.0,COAST:1.0,MTK:0.8,MERU:0.9,RIFT:0.7,WEST:0.55,LUO:0.45,GUSII:0.45,NE:0.5,KAL:0.2},home:['Kitui']},
   {name:'Edwin Sifuna',lean:'bo',youth:1.25,g:{WEST:1.8,NBI:1.5,COAST:1.7,LUO:1.0,GUSII:0.5,RIFT:0.8,KAMBA:0.4,MTK:0.3,MERU:0.3,NE:0.4,KAL:0.3},home:['Bungoma']},
-  {name:"Fred Matiang'i",lean:'bo',youth:0.10,g:{GUSII:5.5,LUO:0.7,MTK:1.4,MERU:1.2,NBI:1.1,RIFT:0.9,WEST:0.5,COAST:0.5,KAMBA:0.5,NE:0.6,KAL:0.4},home:[]},
+  {name:"Fred Matiang'i",lean:'bo',youth:0.10,g:{GUSII:3.6,LUO:0.7,MTK:1.4,MERU:1.2,NBI:1.1,RIFT:0.9,WEST:0.5,COAST:0.5,KAMBA:0.5,NE:0.6,KAL:0.4},home:[]},
   {name:'Babu Owino',lean:'bo',youth:1.10,g:{LUO:3.6,NBI:1.6,WEST:0.8,COAST:0.7,GUSII:0.5,rest:0.3},home:[]},
   {name:'Rigathi Gachagua',lean:'bi',youth:-0.10,g:{MTK:4.5,MERU:2.0,NBI:2.0,RIFT:1.2,rest:0.2},home:['Nyeri']},
   {name:'Ndindi Nyoro',lean:'bi',youth:0.30,g:{MTK:3.0,MERU:1.0,NBI:1.0,RIFT:0.8,rest:0.3},home:["Murang'A"]},
