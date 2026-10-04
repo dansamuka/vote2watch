@@ -144,6 +144,13 @@
         <label class="sl-top" for="seedInput"><span>Random seed</span><output id="seedLabel">2027-baseline-001</output></label>
         <input class="srch w100" id="seedInput" value="2027-baseline-001" spellcheck="false">
         <p class="hint">Research mode with the same seed gives the same result every time.</p>
+        <label class="sl-top" for="registerModeSelect"><span>Voter-register geography</span><output>scenario</output></label>
+        <select class="gov-select w100" id="registerModeSelect">
+          <option value="current" selected>Current proxy · 25.04m</option>
+          <option value="target">IEBC 2027 target scenario · 28.5m</option>
+          <option value="base">2022 certified register · 22.10m</option>
+        </select>
+        <p class="hint">Current/target county weights allocate the latest national additions using IEBC's 28 Apr 2026 county ECVR distribution. They are not a gazetted 2027 register.</p>
       </div>
     </details>
     </div>
@@ -203,9 +210,9 @@
   <section class="pan mb16" aria-labelledby="flowT">
     <div class="pan-hdr"><h3 class="pan-t" id="flowT">How round one becomes round two</h3>
       <span class="vtoggle" role="group" aria-label="Where everyone else's voters go">
-        <button type="button" data-flow="toA" aria-pressed="false" id="flowA">Lean to leader</button>
-        <button type="button" data-flow="spl" aria-pressed="true">Split evenly</button>
-        <button type="button" data-flow="toB" aria-pressed="false" id="flowB">Lean to runner-up</button>
+        <button type="button" data-flow="toA" aria-pressed="false" id="flowA">70% to leader</button>
+        <button type="button" data-flow="model" aria-pressed="true">Modelled transfers</button>
+        <button type="button" data-flow="toB" aria-pressed="false" id="flowB">70% to runner-up</button>
       </span></div>
     <div id="roFlow"></div>
   </section>
@@ -302,7 +309,8 @@
       <div class="mphead"><b id="vmCtyH">County</b><label class="sr-only" for="vmSel">Choose a county</label><select class="sel" id="vmSel"></select></div>
       <div id="vmBody" aria-live="polite"></div>
       <div id="vmWards" hidden>
-        <div class="mphead mt12"><b id="vmWardsT">Wards</b><span class="fc g8"><input class="srch" id="wardSrch" placeholder="Search wards…" aria-label="Search wards"><button type="button" class="btn btn-ghost more-cols" data-more aria-pressed="false">More columns</button></span></div>
+        <div class="mphead mt12"><b id="vmWardsT">Ward voter rows</b><span class="fc g8"><input class="srch" id="wardSrch" placeholder="Search wards…" aria-label="Search wards"><button type="button" class="btn btn-ghost more-cols" data-more aria-pressed="false">More columns</button></span></div>
+        <p class="hint">Official ward names and 2022 voter counts; political shares and turnout are constituency-imputed, not ward-specific forecasts.</p>
         <div class="tscroll cty-wards"><table class="tbl" id="wardTbl"></table></div>
       </div>
     </section>
