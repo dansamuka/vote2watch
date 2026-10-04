@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="description" content="VOTEWATCH 2027: scenario intelligence for Kenya&#39;s 2027 election, with county-level run-off, tipping-point and dispute-risk analysis.">
+<meta name="color-scheme" content="dark light">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoteWatch 2027</title>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap">
+<script>/* apply the saved theme before first paint */try{if(localStorage.getItem("vw-theme")==="dark")document.documentElement.dataset.theme="dark";}catch(e){}</script>
+<link rel="stylesheet" href="css/tokens.css?v=10.5">
+<link rel="stylesheet" href="css/app.css?v=10.5">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="hdr" data-docked="false">
+  <div class="hdr-in">
+    <a class="brand" href="#main" aria-label="VoteWatch 2027, skip to content">
+      <svg class="brand-mark" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+        <rect x="1" y="11" width="4" height="8" rx="1" fill="var(--team-a)"/>
+        <rect x="8" y="5" width="4" height="14" rx="1" fill="var(--team-b)"/>
+        <rect x="15" y="14" width="4" height="5" rx="1" fill="var(--others)"/>
+        <path d="M0 9.5h20" stroke="var(--ink)" stroke-width="1.25" stroke-dasharray="2 2"/>
+      </svg>
+      <div class="brand-txt"><h1 class="logo">VoteWatch <span>2027</span></h1><span class="brand-sub">Kenya election scenario model</span></div>
+    </a>
+    <div class="verdict" id="verdict" role="status" aria-live="polite"><span class="v-title">Running the model…</span></div>
+    <div class="hdr-actions">
+      <button type="button" class="hbtn hbtn-icon" id="helpBtn" aria-label="How to use this page" title="How to use this page">?</button>
+      <button type="button" class="hbtn" id="viewBtn" onclick="setViewMode(S.viewMode==='public'?'internal':'public')" title="Switch between public and analyst wording"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg><span class="lbl" id="viewLbl">Public view</span></button>
+      <button type="button" class="hbtn hbtn-icon" id="themeBtn" onclick="setTheme(S.theme==='light'?'dark':'light')" aria-label="Switch to dark theme">☾</button>
+      <button type="button" class="hbtn" id="liveBtn" aria-pressed="false" onclick="setLive(!S.live)" title="Inject a random synthetic event every 30 seconds"><span class="live-dot" aria-hidden="true"></span><span class="lbl live-txt">Live</span><span class="lbl live-timer" id="hTimer">paused</span></button>
+      <details class="menu">
+        <summary class="hbtn" aria-label="Export"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg><span class="lbl">Export</span></summary>
+        <div class="menu-pop" role="menu">
+          <button type="button" role="menuitem" onclick="printExecutiveReport()">Print / save as PDF</button>
+          <button type="button" role="menuitem" onclick="downloadReportHTML()">Report (HTML)</button>
+          <hr>
+          <button type="button" role="menuitem" onclick="dlCSV('county')">County results (CSV)</button>
+          <button type="button" role="menuitem" onclick="dlCSV('ward')">Ward results (CSV)</button>
+          <button type="button" role="menuitem" onclick="dlCSV('tipping')">Swing counties (CSV)</button>
+        </div>
+      </details>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Sections"><div class="tablist" role="tablist"><span class="tab-ind" aria-hidden="true"></span>
+  <button class="tbtn act" data-t="cmd" role="tab" id="tab-cmd" aria-controls="t-cmd" aria-selected="true"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h12v10H2zM2 6.5h12M5 9.5h3"/></svg>Overview</button>
+  <button class="tbtn" data-t="ro" role="tab" id="tab-ro" aria-controls="t-ro" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a5 5 0 0 1 9-3M13 8a5 5 0 0 1-9 3M12 2v3h-3M4 14v-3h3"/></svg>Run-off</button>
+  <button class="tbtn" data-t="tip" role="tab" id="tab-tip" aria-controls="t-tip" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12l4-5 3 3 5-7M10 3h4v4"/></svg>Swing counties</button>
+  <button class="tbtn" data-t="mat" role="tab" id="tab-mat" aria-controls="t-mat" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z"/></svg>Scenarios</button>
+  <button class="tbtn" data-t="con" role="tab" id="tab-con" aria-controls="t-con" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l6 3H2zM3.5 6v6M8 6v6M12.5 6v6M2 14h12"/></svg>Article 138</button>
+  <button class="tbtn" data-t="map" role="tab" id="tab-map" aria-controls="t-map" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 3.5l4-1.5 5 2 4-1.5v9l-4 1.5-5-2-4 1.5zM5.5 2v9.5M10.5 4v9.5"/></svg>Map</button>
+  <button class="tbtn" data-t="dis" role="tab" id="tab-dis" aria-controls="t-dis" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l6.5 11.5h-13zM8 6.5v3.2M8 11.5v.1"/></svg>Dispute risk</button>
+  <button class="tbtn" data-t="int" role="tab" id="tab-int" aria-controls="t-int" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>Signals</button>
+  <button class="tbtn" data-t="report" role="tab" id="tab-report" aria-controls="t-report" aria-selected="false" tabindex="-1"><svg class="ico" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 1.5h6l3 3v10h-9zM9.5 1.5v3h3M5.5 8h5M5.5 11h5"/></svg>Report</button>
+</div></nav>
+
+<div class="shell">
+<aside class="side" aria-labelledby="sideT">
+  <details class="side-box" id="sideBox" open>
+    <summary class="side-sum"><span id="sideT">Scenario settings</span><span class="side-sum-hint">Every tab updates as you change these</span></summary>
+    <div class="side-body">
+    <section class="side-sec" aria-labelledby="secTeams">
+      <h3 class="side-h" id="secTeams">Teams</h3>
+      <div class="tm-chips" id="teamChips"></div>
+      <p class="side-h tm-sub">Who joins which team</p>
+      <div class="tm-grid" id="teamGrid" role="group" aria-label="Assign each candidate to a team"></div>
+      <p class="side-h tm-sub">Tickets</p>
+      <div class="tk" id="ticketBox"></div>
+      <div class="sl">
+        <label class="sl-top" for="sl-follow"><span>Running mate's supporters who follow</span><output id="lv-follow">65%</output></label>
+        <input type="range" id="sl-follow" list="vwFollow" title="Double-click to reset" min="50" max="100" step="1" value="65">
+        <p class="hint">Real coalitions leak; 80–90% is typical. The default is 65%: bases of former rivals transfer poorly. The presidential candidate keeps all their supporters.</p>
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-off"><span>Supporters of candidates left off the ticket who follow</span><output id="lv-off">55%</output></label>
+        <input type="range" id="sl-off" list="vwOff" title="Double-click to reset" min="0" max="100" step="1" value="55">
+        <p class="hint">A candidate who backs the ticket without a place on it keeps fewer of their voters.</p>
+      </div>
+      <details class="side-adv" open>
+        <summary>Where the others go</summary>
+        <p class="hint">Voters who don't follow their candidate into a team. Shares are rescaled to add up to 100%. These are assumptions, not measured.</p>
+        <div class="side-sec">
+      <div class="sl">
+        <label class="sl-top" for="sl-lh"><span>Stay home</span><output id="lv-lh">30%</output></label>
+        <input type="range" id="sl-lh" list="vwLh" title="Double-click to reset" min="0" max="100" step="1" value="30">
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-lc"><span>Cross to the other main side</span><output id="lv-lc">40%</output></label>
+        <input type="range" id="sl-lc" list="vwLc" title="Double-click to reset" min="0" max="100" step="1" value="40">
+        <p class="hint">Opposition voters go to team A; team A's voters go to team B.</p>
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-le"><span>Vote for someone else</span><output id="lv-le">30%</output></label>
+        <input type="range" id="sl-le" list="vwLe" title="Double-click to reset" min="0" max="100" step="1" value="30">
+      </div>
+        </div>
+      </details>
+    </section>
+    <section class="side-sec" aria-labelledby="secAss">
+      <h3 class="side-h" id="secAss">Adjust</h3>
+      <div class="sl">
+        <label class="sl-top" for="sl-si"><span>Swing to team A</span><output id="lv-si">±0pp</output></label>
+        <input type="range" id="sl-si" list="vwZero" title="Double-click to reset" min="-12" max="12" step="0.5" value="0">
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-so"><span>Swing to team B</span><output id="lv-so">±0pp</output></label>
+        <input type="range" id="sl-so" list="vwZero" title="Double-click to reset" min="-12" max="12" step="0.5" value="0">
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-ys"><span>Youth turnout</span><output id="lv-ys">+0pp</output></label>
+        <input type="range" id="sl-ys" list="vwZero" title="Double-click to reset" min="-5" max="18" step="1" value="0">
+      </div>
+      <div class="sl">
+        <label class="sl-top" for="sl-tf"><span>Protest vote</span><output id="lv-tf">0pp</output></label>
+        <input type="range" id="sl-tf" list="vwZero" title="Double-click to reset" min="0" max="20" step="0.5" value="0">
+      </div>
+      <details class="side-adv" open>
+        <summary>Turnout by region</summary>
+        <p class="hint">Each region's turnout goes up or down by this share: −12% means 12% fewer of its voters turn out.</p>
+        <div class="side-sec" id="rtGrid"></div>
+      </details>
+      <div class="reg-row">
+        <button type="button" class="switch" role="switch" aria-checked="true" data-reg="uda" onclick="regime('uda',this.getAttribute('aria-checked')!=='true')"><span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span><span class="reg-lbl">Ruto holds the Rift Valley</span></button>
+      </div>
+      <button type="button" class="btn btn-ghost w100" id="bReset">↺ Reset</button>
+    </section>
+    <details class="side-adv">
+      <summary>Advanced</summary>
+      <div class="side-sec">
+        <label class="sl-top" for="mcModeSelect"><span>Simulation depth</span><output id="mcModeLabel">Research · 5,000 seeded</output></label>
+        <select class="gov-select w100" id="mcModeSelect">
+          <option value="preview">Preview (fast, 400 runs)</option>
+          <option value="standard">Standard (1,000 runs)</option>
+          <option value="research" selected>Research (5,000 seeded runs)</option>
+        </select>
+        <p class="hint" id="mcCredibilityNote">Preview is for exploring. Switch to Standard or Research before briefing.</p>
+        <label class="sl-top" for="seedInput"><span>Random seed</span><output id="seedLabel">2027-baseline-001</output></label>
+        <input class="srch w100" id="seedInput" value="2027-baseline-001" spellcheck="false">
+        <p class="hint">Research mode with the same seed gives the same result every time.</p>
+      </div>
+    </details>
+    </div>
+  </details>
+  <datalist id="vwZero"><option value="0"></option></datalist><datalist id="vwFollow"><option value="65"></option></datalist><datalist id="vwOff"><option value="55"></option></datalist><datalist id="vwLh"><option value="30"></option></datalist><datalist id="vwLc"><option value="40"></option></datalist><datalist id="vwLe"><option value="30"></option></datalist>
+</aside>
+
+<main id="main">
+
+<!-- ═══ TAB: COMMAND ═══ -->
+<div class="tpane act" id="t-cmd" role="tabpanel" aria-labelledby="tab-cmd">
+  <h2 class="sr-only">Overview</h2>
+  <ol class="guide" id="guide">
+    <li><b>1</b> Put candidates on teams.</li>
+    <li><b>2</b> Read the result at the top.</li>
+    <li><b>3</b> Open a tab to see why.</li>
+    <li><b>4</b> Export a report.</li>
+    <button type="button" class="guide-x" onclick="this.closest('.guide').hidden=true;try{localStorage.setItem('vw-guide','0')}catch(e){}" aria-label="Dismiss guide">×</button>
+  </ol>
+  <section class="race card mb16" id="raceStrip" aria-labelledby="raceT"></section>
+  <div class="cards2 mb16" id="kpiRow"></div>
+  <section class="hero pan mb12" aria-labelledby="heroT"><div class="pan-hdr"><h3 class="pan-t" id="heroT">Who leads each county <span class="pan-s">grouped by region · tap one for detail</span></h3><span class="hero-leg" id="heroLeg"></span></div><div id="heroBody" class="hero-body"><div class="skel skel-56"></div></div><div class="cb-key" id="heroKey"></div></section>
+  <div class="impl-box mb12" id="implBox"><div class="impl-hdr">What this means</div><div class="loading skel-80"></div></div>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">National result by region</h3></div>
+      <div id="natBd"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">What moves the result <span class="pan-s">team A share if one thing changes</span></h3></div>
+      <div id="tornado"></div>
+      <p class="hint mt8" id="torNote"></p>
+    </div>
+  </div>
+  <details class="pan fold tech">
+    <summary class="pan-t">Technical detail</summary>
+  <div class="g2 mb12 mt12">
+    <div class="pan"><div class="pan-hdr"><h3 class="pan-t">Assumption check <span class="pan-s">effect of nudging each input</span></h3></div><div id="assumptionSensitivity"></div></div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Event log <span class="pan-s">synthetic shocks</span></h3><span class="fc g8"><span class="b b-m" id="shBadge">paused</span><button type="button" class="btn" id="bRefresh">+ Add random event</button></span></div>
+      <div id="shLog" class="shlog"></div>
+      <span id="timerDisp" hidden>paused</span>
+    </div>
+  </div>
+    <div class="g2 mt12">
+      <div id="methNotes" class="note"></div>
+      <div id="responsibleUsePanel"></div>
+    </div>
+  </details>
+</div>
+
+<!-- ═══ TAB: RUN-OFF ═══ -->
+<div class="tpane" id="t-ro" role="tabpanel" aria-labelledby="tab-ro">
+  <h2 class="sr-only">Run-off</h2>
+  <p class="pane-intro"><strong>If nobody wins outright, the top two meet again.</strong> Who wins depends on where everyone else's voters go.</p>
+  <div class="ro-cards mb12" id="roScens"></div>
+  <section class="pan mb16" aria-labelledby="flowT">
+    <div class="pan-hdr"><h3 class="pan-t" id="flowT">How round one becomes round two</h3>
+      <span class="vtoggle" role="group" aria-label="Where everyone else's voters go">
+        <button type="button" data-flow="toA" aria-pressed="false" id="flowA">Lean to leader</button>
+        <button type="button" data-flow="spl" aria-pressed="true">Split evenly</button>
+        <button type="button" data-flow="toB" aria-pressed="false" id="flowB">Lean to runner-up</button>
+      </span></div>
+    <div id="roFlow"></div>
+  </section>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Closest counties in a run-off</h3></div>
+      <div class="tscroll"><table class="tbl" id="roCtbl"></table></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Is a run-off forced?</h3></div>
+      <div id="ffDetail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TAB: TIPPING ═══ -->
+<div class="tpane" id="t-tip" role="tabpanel" aria-labelledby="tab-tip">
+  <h2 class="sr-only">Swing counties</h2>
+  <p class="pane-intro"><strong>Counties near the 25% line.</strong> Team A needs 25% in 24 counties; these could go either way.</p>
+  <section class="pan mb16" aria-labelledby="tipStripT"><div class="pan-hdr"><h3 class="pan-t" id="tipStripT">Every county against the 25% line <span class="pan-s">team A share</span></h3></div><div id="tipStrip"></div></section>
+  <section class="pan mb12" aria-labelledby="p24T">
+    <div class="pan-hdr"><h3 class="pan-t" id="p24T">The 24-county test</h3></div>
+    <div id="p24"></div>
+  </section>
+  <div class="pan mb12">
+    <div class="pan-hdr"><h3 class="pan-t">Counties near the 25% line <span class="pan-s">closest first</span></h3><button type="button" class="btn btn-ghost more-cols" data-more aria-pressed="false">More columns</button></div>
+    <div class="tscroll"><table class="tbl" id="tipTbl"></table></div>
+  </div>
+  <div class="pan">
+    <div class="pan-hdr"><h3 class="pan-t">All counties: the 25% test</h3></div>
+    <div class="tscroll"><table class="tbl" id="a138Tbl"></table></div>
+  </div>
+</div>
+
+<!-- ═══ TAB: SCENARIOS ═══ -->
+<div class="tpane" id="t-mat" role="tabpanel" aria-labelledby="tab-mat">
+  <h2 class="sr-only">Scenarios</h2>
+  <p class="pane-intro"><strong>Four ready-made line-ups.</strong> Press <em>Use this line-up</em> to load one.</p>
+  <div class="sqg mb12" id="sqMat"></div>
+  <div class="pan">
+    <div class="pan-hdr"><h3 class="pan-t">Compare scenarios</h3></div>
+    <div class="tscroll"><table class="tbl" id="sqTbl"></table></div>
+  </div>
+</div>
+
+<!-- ═══ TAB: CONSTITUTIONAL ═══ -->
+<div class="tpane" id="t-con" role="tabpanel" aria-labelledby="tab-con">
+  <h2 class="sr-only">Article 138</h2>
+  <p class="pane-intro"><strong>The winning rule.</strong> Over 50% of votes, and 25% in at least 24 of 47 counties.</p>
+  <div class="g2 mb12">
+    <div class="pan gates" id="jpBoxes">
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">The 25% test by region</h3></div>
+      <div id="clExp"></div>
+    </div>
+  </div>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Western and Coast counties</h3></div>
+      <div id="coalDisp"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Past results <span class="pan-s">by region, 2013–2022 and now</span></h3></div>
+      <div id="histCtx"></div>
+    </div>
+  </div>
+  <div class="pan">
+    <div class="pan-hdr"><h3 class="pan-t">Most influential wards</h3></div>
+    <div class="tscroll"><table class="tbl" id="sensTbl"></table></div>
+  </div>
+</div>
+
+
+<!-- ═══ TAB: MAP ═══ -->
+<div class="tpane" id="t-map" role="tabpanel" aria-labelledby="tab-map">
+  <h2 class="sr-only">Map</h2>
+  <p class="pane-intro"><strong>Every county.</strong> Click a county or pick one from the list to see its result.</p>
+  <div class="mapsec">
+    <figure class="plate mapmain">
+      <figcaption class="mphead"><b>Kenya</b>
+        <span class="vtoggle" role="group" aria-label="Colour the map by">
+          <button type="button" data-vm="lead" aria-pressed="true">Who leads</button>
+          <button type="button" data-vm="a" aria-pressed="false">Team A</button>
+          <button type="button" data-vm="b" aria-pressed="false">Team B</button>
+          <button type="button" data-vm="turnout" aria-pressed="false">Turnout</button>
+        </span>
+      </figcaption>
+      <svg id="vmMap" class="msvg" viewBox="-44 -40 560 636" role="img" aria-label="Map of Kenya's counties"></svg>
+      <div class="mbar" id="vmLegend"></div>
+    </figure>
+    <section class="plate cty-card" aria-labelledby="vmCtyH">
+      <button type="button" class="sheet-handle" id="vmSheetBtn" aria-label="Expand or collapse county details"><i></i></button>
+      <div class="mphead"><b id="vmCtyH">County</b><label class="sr-only" for="vmSel">Choose a county</label><select class="sel" id="vmSel"></select></div>
+      <div id="vmBody" aria-live="polite"></div>
+      <div id="vmWards" hidden>
+        <div class="mphead mt12"><b id="vmWardsT">Wards</b><span class="fc g8"><input class="srch" id="wardSrch" placeholder="Search wards…" aria-label="Search wards"><button type="button" class="btn btn-ghost more-cols" data-more aria-pressed="false">More columns</button></span></div>
+        <div class="tscroll cty-wards"><table class="tbl" id="wardTbl"></table></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ═══ TAB: DISPUTE ═══ -->
+<div class="tpane" id="t-dis" role="tabpanel" aria-labelledby="tab-dis">
+  <h2 class="sr-only">Dispute risk</h2>
+  <p class="pane-intro"><strong>Could the result end up in court?</strong> Based on close margins and where they cluster.</p>
+  <div class="g3 mb12" id="disKpis"></div>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">How close each county is <span class="pan-s">team A minus team B</span></h3></div>
+      <div id="disStrip"></div>
+      <div class="divider analyst-only"></div>
+      <div id="disNarr" class="note analyst-only"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Close counties by region</h3></div>
+      <div id="disClust"></div>
+    </div>
+  </div>
+  <div class="pan">
+    <div class="pan-hdr"><h3 class="pan-t">All counties: dispute risk</h3><button type="button" class="btn btn-ghost more-cols" data-more aria-pressed="false">More columns</button></div>
+    <div class="tscroll"><table class="tbl" id="disTbl"></table></div>
+  </div>
+</div>
+
+<!-- ═══ TAB: INTEL ═══ -->
+<div class="tpane" id="t-int" role="tabpanel" aria-labelledby="tab-int">
+  <h2 class="sr-only">Signals</h2>
+  <p class="pane-intro"><strong>Where the race stands.</strong> Latest polls, key facts and what to watch.</p>
+  <div class="polls-grid mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Latest national polls <span class="pan-s">decided voters, grouped by your teams</span></h3></div>
+      <div class="psm" id="pollsSM"></div>
+      <details class="fold mt12"><summary class="u-fs12 c-muted">Show as a table</summary><div class="tscroll mt8"><table class="tbl" id="pollsTbl"></table></div></details>
+      <p class="hint mt8">"Held out" polls haven't published their method.</p>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Key facts <span class="pan-s">as of 3 Oct 2026</span></h3></div>
+      <ul class="ctx-list" id="ctxFacts"></ul>
+    </div>
+  </div>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">What could change the race</h3></div>
+      <div id="levList"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">What to monitor</h3></div>
+      <div id="sentList"></div>
+    </div>
+  </div>
+  <details class="pan fold tech"><summary class="pan-t">Technical detail</summary><div class="mt12">
+  <div class="g3 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">By-election checks <span class="pan-s">2023–2024</span></h3></div>
+      <div id="byeList"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Data upgrades</h3></div>
+      <div id="dataRoadmap"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">What each switch does</h3></div>
+      <div id="regEffects"></div>
+    </div>
+  </div>
+
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Political-Economy Overlays <span class="pan-s">proxy / synthetic explanatory signals</span></h3></div>
+      <div id="politicalEconomyPanel"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">NGO / Civic-Risk Lens</h3></div>
+      <div id="civicRiskPanel"></div>
+    </div>
+  </div>
+  <div class="g2 mb12">
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Security Early-Warning Lens <span class="pan-s">non-operational civic monitoring</span></h3></div>
+      <div id="securityRiskPanel"></div>
+    </div>
+    <div class="pan">
+      <div class="pan-hdr"><h3 class="pan-t">Frontier-Market Election Risk Monitor</h3></div>
+      <div id="marketRiskPanel"></div>
+    </div>
+  </div>
+  </div></details>
+</div>
+
+
+<!-- ═══ TAB: REPORT ═══ -->
+<div class="tpane" id="t-report" role="tabpanel" aria-labelledby="tab-report">
+  <h2 class="sr-only">Report</h2>
+  <p class="pane-intro"><strong>A briefing to share.</strong> The result, the run-off, each team's ticket, what other running mates would change, and the assumptions behind it.</p>
+  <div class="report-toolbar no-print fb mb12">
+    <div>
+      <h3 class="pan-t">Printable report</h3>
+      <p class="hint">A briefing built from your current settings, including the tickets and running-mate options.</p>
+    </div>
+    <div class="btn-grp u-mt0">
+      <button class="btn btn-p" onclick="printExecutiveReport()">Print or save PDF</button>
+      <button class="btn" onclick="downloadReportHTML()">Download HTML</button>
+      <button class="btn" onclick="renderExecutiveReport()">Refresh</button>
+    </div>
+  </div>
+  <section id="printReport" class="print-report"></section>
+</div>
+
+</main>
+</div>
+
+<script defer src="data/wards.js?v=10.5"></script>
+<script defer src="data/counties.js?v=10.5"></script>
+<script defer src="data/transport.js?v=10.5"></script>
+<script defer src="data/context.js?v=10.5"></script>
+<script defer src="data/kenya-geo.js?v=10.5"></script>
+<script defer src="js/viz.js?v=10.5"></script>
+<script defer src="js/app.js?v=10.5"></script>
+<script defer src="js/enhance.js?v=10.5"></script>
+<script defer src="js/map.js?v=10.5"></script>
+</body>
+</html>
