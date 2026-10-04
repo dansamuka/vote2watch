@@ -4,8 +4,12 @@ const REGION={"Urban/Protest":"Western & Nairobi","Mountain Rebel":"Mt Kenya","C
 CO.forEach(c=>{c.cluster=REGION[c.cluster]||c.cluster;});
 WD.forEach(w=>{w.cl=REGION[w.cl]||w.cl;});
 const WARDS=WD.map(w=>({id:w.id,county:w.co,constituency:w.cs,ward:w.w,
-  voters:w.v,toBase:w.tb,bi:w.bi,bo:w.bo,cl:w.cl,dq:w.dq,vl:w.vl,yr:w.yr,dn:w.dn}));
+  voters:w.v,toBase:w.tb,bi:w.bi,bo:w.bo,cl:w.cl,dq:w.dq,vl:w.vl,yr:w.yr,dn:w.dn,
+  basis:w.basis||'constituency_imputed',sourceWardCode:w.sourceWardCode,sourceConstituencyCode:w.sourceConstituencyCode}));
 const CM=new Map(CO.map(c=>[c.name,c]));
+const REGISTER_MODES={base:'registered2022',current:'currentEnrolmentProxyAug2026',target:'projectedVoters2027'};
+function countyRegister(c,mode='current'){const k=REGISTER_MODES[mode]||REGISTER_MODES.current;return Number(c&&c[k])||Number(c&&c.registered2022)||0;}
+function registerScale(name,mode='current'){const c=CM.get(name);return c&&c.registered2022?countyRegister(c,mode)/c.registered2022:1;}
 const WBC=new Map();
 WARDS.forEach(w=>{if(!WBC.has(w.county))WBC.set(w.county,[]);WBC.get(w.county).push(w);});
 
@@ -120,7 +124,7 @@ const SCENS=[
     cfg:presetCfg(['Ruto’s side','Kalonzo–Matiang\'i'],[['William Ruto'],['Kalonzo Musyoka',"Fred Matiang'i"]]),p:{tf:0,si:0,so:0,ys:0,rt:{...RT_ZERO}}}
 ];
 // Default assumptions. RAW integers: engine divides by 100.
-const DEFAULTS={tf:0,si:0,so:0,ys:0,reg:{uda:true},rt:{...RT_DEFAULT}};
+const DEFAULTS={tf:0,si:0,so:0,ys:0,registerMode:'current',reg:{uda:true},rt:{...RT_DEFAULT}};
 // Coalition display lists (Article 138 tab)
 const FK=['Bungoma','Kakamega','Vihiga','Busia','Trans Nzoia'];
 const OLG=['Mombasa','Kilifi','Kwale','Lamu','Tana River'];
@@ -131,7 +135,7 @@ const CTY_N=24;
 // ═══ STATE — all raw integers, engine divides ═══
 const S={
   tf:DEFAULTS.tf,si:DEFAULTS.si,so:DEFAULTS.so,ys:DEFAULTS.ys,  // RAW pp; engine does /100
-  reg:{...DEFAULTS.reg},rt:{...DEFAULTS.rt},
+  reg:{...DEFAULTS.reg},rt:{...DEFAULTS.rt},registerMode:DEFAULTS.registerMode,
   cfg:defaultCfg(),
   selCty:'Nairobi City',
   shocks:[],shLog:[],timer:30,live:false,
@@ -187,7 +191,9 @@ const WK=WARDS.map(w=>({
 // 2022 lean (Ruto-leaning wards for 'bi' candidates, Raila-leaning for 'bo').
 const CAND=(()=>{
   const nW=WARDS.length,nC=CANDIDATES.length;
-  const wt=WARDS.map(w=>w.voters*w.toBase);
+  // Fit national polling levels using the current-registration geography rather than
+  // a uniform 2022 uplift. Ward preferences themselves remain constituency-imputed.
+  const wt=WARDS.map(w=>w.voters*registerScale(w.county,'current')*w.toBase);
   // The level for each county group comes from the candidate's group strength
   // (data/context.js); 2022 results, softened by a square root, spread it across
   // the counties and wards inside the group.
@@ -201,7 +207,8 @@ const CAND=(()=>{
     return Float64Array.from(WARDS,w=>{
       const lean=Math.sqrt(Math.max(0.05,(w[c.lean]||0)/(mean[c.lean][GROUP_OF[w.county]||w.county]||1)));
       const g=c.g[GROUP_OF[w.county]]??c.g.rest??0.5;
-      return (c.avg/tot)*g*lean*(home.has(w.county)?1.5:1);
+      const youth=Math.exp((c.youth||0)*((w.yr||0.42)-0.42)*2.5);
+      return (c.avg/tot)*g*lean*youth*(home.has(w.county)?1.5:1);
     });
   });
   const W=wt.reduce((a,b)=>a+b,0);
@@ -224,8 +231,11 @@ function fieldFor(cfg){
   let f=_cfgCache.get(key);if(f)return f;
   if(_cfgCache.size>16)_cfgCache.clear();
   const follow=(cfg.follow??85)/100,offF=(cfg.offFollow??LEAK_DEFAULT.off)/100;
-  const lk=cfg.leak||LEAK_DEFAULT.leak,lt=(lk.home+lk.cross+lk.else)||1;
-  const pH=lk.home/lt,pC=lk.cross/lt,pE=lk.else/lt;
+  const lk=cfg.leak||LEAK_DEFAULT.leak;
+  // UI controls now scale candidate/region priors instead of imposing one universal
+  // stay-home/cross-over/elsewhere matrix on every politician's electorate.
+  const offScale=offF/(LEAK_DEFAULT.off/100);
+  const leakScale={home:(lk.home||0)/LEAK_DEFAULT.leak.home,cross:(lk.cross||0)/LEAK_DEFAULT.leak.cross,else:(lk.else||0)/LEAK_DEFAULT.leak.else};
   const groups=cfg.teams.map((name,i)=>({key:i===0?'inc':i===1?'opp':'t'+i,name,members:[],ti:i}));
   const solos=[];
   CAND.names.forEach((n,ci)=>{const t=cfg.assign[n];if(t>=0&&t<groups.length)groups[t].members.push(ci);else solos.push({key:'s'+ci,name:n,members:[ci],ti:-1});});
@@ -239,15 +249,18 @@ function fieldFor(cfg){
   // pass 1: kept support, stay-home and cross-over flows
   all.forEach(g=>{
     g.members.forEach(ci=>{
-      const nm=CAND.names[ci],tk=g.ticket;
-      let keep=!tk||nm===tk.p?1:(nm===tk.r||nm===tk.ally)?follow:offF;
-      // a defector to Ruto's side brings fewer of their voters: at most the off-ticket rate
-      if(g.ti===0&&cfg.defectors&&cfg.defectors.includes(nm))keep=Math.min(keep,offF);
-      const sh=CAND.share[ci];
-      if(keep>=1){for(let i=0;i<nW;i++)g.base[i]+=sh[i];return;}
+      const nm=CAND.names[ci],tk=g.ticket,sh=CAND.share[ci];
       if(!g.leakE)g.leakE=new Float64Array(nW);
       for(let i=0;i<nW;i++){
-        const l=sh[i]*(1-keep);g.base[i]+=sh[i]*keep;away[i]+=l*pH;
+        const group=GROUP_OF[WARDS[i].county],pr=transferPrior(nm,group);
+        let keep=!tk||nm===tk.p?1:(nm===tk.r||nm===tk.ally)?follow:clamp(pr.keep*offScale,0.15,0.95);
+        // A defector cannot automatically carry more voters than the local prior permits.
+        if(g.ti===0&&cfg.defectors&&cfg.defectors.includes(nm))keep=Math.min(keep,clamp(pr.keep*offScale,0.15,0.90));
+        if(keep>=0.999){g.base[i]+=sh[i];continue;}
+        const l=sh[i]*(1-keep);g.base[i]+=sh[i]*keep;
+        const rh=pr.stay*leakScale.home,rc=pr.cross*leakScale.cross,re=pr.else*leakScale.else,lt=(rh+rc+re)||1;
+        const pH=rh/lt,pC=rc/lt,pE=re/lt;
+        away[i]+=l*pH;
         if(g.rival){g.rival.base[i]+=l*pC;g.rival.cross[i]+=l*pC;g.leakE[i]+=l*pE;}
         else g.leakE[i]+=l*(pC+pE);
       }
@@ -289,6 +302,8 @@ function sim(params={},noise=false,shocks=true,capWards=false){
   const ys  =(params.ys  !==undefined?params.ys  :S.ys )  /100;
   const reg={...S.reg,...(params.reg||{})};
   const rt=params.rt||S.rt||RT_ZERO;
+  const registerMode=params.registerMode||S.registerMode||'current';
+  const regScale=Object.fromEntries(CO.map(c=>[c.name,registerScale(c.name,registerMode)]));
   // county → turnout factor from the regional sliders
   const rtc={};RT_REGIONS.forEach(r=>{const f=1+(rt[r.k]||0)/100;r.g.forEach(g=>(COUNTY_GROUP[g]||[]).forEach(n=>rtc[n]=f));});
   const F=fieldFor(params.cfg||S.cfg);
@@ -304,7 +319,7 @@ function sim(params={},noise=false,shocks=true,capWards=false){
   const lkN=noise?rng()*0.25:0;
 
   const agg=CO.map(c=>({
-    name:c.name,cluster:c.cluster,pop:c.projectedVoters2027,
+    name:c.name,cluster:c.cluster,pop:countyRegister(c,registerMode),
     dq:c.dataQuality,vl:c.volatility,yr:c.youthRatio,
     tv:0,iv:0,ov:0,tfv:0,ts:0,wc:0,oc:new Float64Array(nO)
   }));
@@ -340,14 +355,16 @@ function sim(params={},noise=false,shocks=true,capWards=false){
     const si_=Math.max(inc,0)/tot,so_=Math.max(opp,0)/tot,st_=Math.max(tf_,0)/tot;
 
     const to=clamp((w.toBase+(w.yr||0.42)*ys+sto)*(rtc[w.county]||1)*(1-F.away[wi])+tn,0.2,0.87);
-    const vs=w.voters*to;
+    const voters=w.voters*(regScale[w.county]||1);
+    const vs=voters*to;
     const a=k.ci>=0?agg[k.ci]:null;
     if(a){
       a.tv+=vs;a.iv+=vs*si_;a.ov+=vs*so_;a.tfv+=vs*st_;a.ts+=to;a.wc++;
       for(let o=0;o<nO;o++)a.oc[o]+=vs*st_*F.others[o].frac[wi];
     }
     if(capWards)wardRes.push({county:w.county,constituency:w.constituency,ward:w.ward,
-      voters:w.voters,to,inc:si_,opp:so_,tf:st_,dq:w.dq,vl:w.vl,cl:w.cl});
+      voters,registered2022:w.voters,to,inc:si_,opp:so_,tf:st_,dq:w.dq,vl:w.vl,cl:w.cl,
+      basis:w.basis,sourceWardCode:w.sourceWardCode,sourceConstituencyCode:w.sourceConstituencyCode});
   }
 
   const ctyRes=agg.map(c=>{
@@ -374,7 +391,7 @@ function sim(params={},noise=false,shocks=true,capWards=false){
 function mcCore(params,n){
   let i=0,iW=0,oW=0,ro=0,iJ=0,oJ=0;
   const iA=[],oA=[],tA=[],pairs={},r2Win={};
-  const gen=S.mcMode==='research'?mulberry32(seedHash(`${S.seed}|${JSON.stringify(params)}|${n}|${S.tf}|${S.si}|${S.so}|${S.ys}|${JSON.stringify(S.reg)}|${JSON.stringify(S.rt)}|${JSON.stringify(S.cfg)}`)):null;
+  const gen=S.mcMode==='research'?mulberry32(seedHash(`${S.seed}|${JSON.stringify(params)}|${n}|${S.tf}|${S.si}|${S.so}|${S.ys}|${S.registerMode}|${JSON.stringify(S.reg)}|${JSON.stringify(S.rt)}|${JSON.stringify(S.cfg)}`)):null;
   const mode=S.mcMode,seed=S.seed;
   return {
     step(k){
@@ -389,8 +406,8 @@ function mcCore(params,n){
             const oP=r.nat.o>0.50&&o25>=CTY_N;
             if(iP)iW++;else if(oP)oW++;else{
               ro++;
-              // which two finish top in this draw, and who wins round two (even split)
-              const r2=r2sim(r.ctyRes,r.nat,'spl');
+              // Which two finish top, then sample candidate/region-specific second-round transfers.
+              const r2=r2sim(r.ctyRes,r.nat,'model',true);
               const key=[r2.a,r2.b].sort().join('|');
               pairs[key]=(pairs[key]||0)+1;
               r2Win[r2.winner]=(r2Win[r2.winner]||0)+1;
@@ -413,6 +430,11 @@ function mcCore(params,n){
   };
 }
 function mc(params={},n=ITERS){const m=mcCore(params,n);m.step(n);return m.result();}
+function structuralSummary(){
+  const vals=SCENS.map(sc=>{const r=sim({...sc.p,cfg:sc.cfg,registerMode:S.registerMode},false,false,false);return{id:sc.id,title:sc.t,i:r.nat.i,o:r.nat.o,t:r.nat.t};});
+  const inc=vals.map(x=>x.i),opp=vals.map(x=>x.o);
+  return{values:vals,iLo:Math.min(...inc),iHi:Math.max(...inc),oLo:Math.min(...opp),oHi:Math.max(...opp)};
+}
 // Large runs: show a quick 400-run estimate now, finish the full run in
 // ~100-run slices between frames, then redraw. A newer render cancels older jobs.
 const MC_QUICK=400,MC_SLICE=100;
@@ -446,30 +468,64 @@ function r2pair(nat){
   const order=c.sort((p,q)=>q[1]-p[1]).map(p=>p[0]);
   return{a:order[0],b:order[1],e:order[2]||'tf'};
 }
-// Run-off transfers: voters whose candidate is out split 70/30 toward the
-// finalist they lean to, or 50/50 with no lean. (Replaces the v5 regional
-// table, whose "lean to the opposition" still sent most Mt Kenya votes to Ruto.)
-const R2_LEAN=0.70;
-function leanRate(){return R2_LEAN;}
-// dir: 'toA' (everyone else leans to the leader), 'toB' (to the runner-up), 'spl' (even).
-// "Everyone else" = all first-round votes not cast for the two finalists.
-function r2sim(ctyRes,nat,dir='spl'){
+// Run-off transfer priors: expected share of each eliminated candidate's vote
+// going to the incumbent when the finalists are incumbent vs main opposition.
+// These are judgemental priors with regional adjustments and uncertainty, not facts.
+const RUNOFF_INC_PRIORS={
+  'Kalonzo Musyoka':{base:.08,KAMBA:.05,NBI:.10},
+  'Edwin Sifuna':{base:.10,WEST:.08,NBI:.08,COAST:.10},
+  "Fred Matiang'i":{base:.20,GUSII:.15,MTK:.24,MERU:.24},
+  'Babu Owino':{base:.07,LUO:.05,NBI:.07},
+  'Rigathi Gachagua':{base:.22,MTK:.30,MERU:.28},
+  'Ndindi Nyoro':{base:.30,MTK:.36,MERU:.34},
+  'Oburu Odinga':{base:.35,LUO:.38},
+  'David Maraga':{base:.15,GUSII:.13},
+  'Martha Karua':{base:.18,MTK:.20},
+  'James Orengo':{base:.08,LUO:.06},
+  'Okiya Omtata':{base:.10,WEST:.08},
+  'George Wajackoyah':{base:.25,WEST:.22},
+  'Jimi Wanjigi':{base:.28,MTK:.30}
+};
+function runoffIncShare(name,group){
+  const p=RUNOFF_INC_PRIORS[name];
+  if(p)return p[group]??p.base;
+  const c=CANDIDATES.find(x=>x.name===name);
+  return c&&c.lean==='bi'?0.30:0.15;
+}
+function contestantNames(k,nat){
+  const idxs=k==='inc'?(nat.A?.members||[]):k==='opp'?(nat.B?.members||[]):((nat.others||[]).find(o=>o.key===k)?.members||[]);
+  return idxs.map(i=>CAND.names[i]).filter(Boolean);
+}
+function modelTransferToA(k,a,b,c,nat,noise=false){
+  const group=GROUP_OF[c.name]||null,names=contestantNames(k,nat);
+  const incMean=names.length?names.reduce((z,n)=>z+runoffIncShare(n,group),0)/names.length:0.22;
+  let mean;
+  if(a==='inc'||b==='inc')mean=a==='inc'?incMean:1-incMean;
+  else if(a==='opp'||b==='opp'){
+    const leanOpp=names.length?names.reduce((z,n)=>z+((CANDIDATES.find(x=>x.name===n)?.lean==='bo')?0.72:0.45),0)/names.length:0.58;
+    mean=a==='opp'?leanOpp:1-leanOpp;
+  }else mean=0.5;
+  return clamp(mean+(noise?rng()*0.07:0),0.03,0.97);
+}
+// dir: model = candidate/region priors; toA/toB/spl are sensitivity bounds.
+function r2sim(ctyRes,nat,dir='model',noise=false){
   const {a,b,e}=r2pair(nat);
-  const oi=k=>nat.others.find(x=>x.key===k)?.idx;
-  const ai=oi(a),bi=oi(b);
-  const v=(c,k,idx)=>k==='inc'?c.iv:k==='opp'?c.ov:(c.oc?c.oc[idx]:0)||0;
+  const oi=k=>(nat.others||[]).find(x=>x.key===k)?.idx;
+  const v=(c,k)=>k==='inc'?c.iv:k==='opp'?c.ov:(c.oc?c.oc[oi(k)]:0)||0;
+  const keys=['inc','opp',...(nat.others||[]).map(o=>o.key)];
   let aV=0,bV=0;
   const r2cty=ctyRes.map(c=>{
-    const va=v(c,a,ai),vb=v(c,b,bi),pool=Math.max(0,c.iv+c.ov+c.tfv-va-vb);
-    const toA=dir==='toA'?leanRate(a,a,b,c.cluster):dir==='toB'?1-leanRate(b,a,b,c.cluster):0.5;
-    const ra=va+pool*toA,rb=vb+pool*(1-toA),t=ra+rb||1;
-    aV+=ra;bV+=rb;
-    const r2a=ra/t;
-    return{...c,r2a,r2lead:r2a>=0.5?a:b};
+    let ra=v(c,a),rb=v(c,b);
+    for(const k of keys){
+      if(k===a||k===b)continue;
+      const vk=v(c,k);if(!vk)continue;
+      const toA=dir==='toA'?0.70:dir==='toB'?0.30:dir==='spl'?0.50:modelTransferToA(k,a,b,c,nat,noise);
+      ra+=vk*toA;rb+=vk*(1-toA);
+    }
+    const t=ra+rb||1;aV+=ra;bV+=rb;
+    const r2a=ra/t;return{...c,r2a,r2lead:r2a>=0.5?a:b};
   });
-  const shareA=aV/((aV+bV)||1);
-  // Art. 138(7): most votes wins the run-off; no county-spread test in round two.
-  const winner=shareA>=0.5?a:b;
+  const shareA=aV/((aV+bV)||1),winner=shareA>=0.5?a:b;
   return{a,b,e,r2cty,shareA,shareB:1-shareA,winner,dir,votesA:aV,votesB:bV,
     r2iN:a==='inc'?shareA:b==='inc'?1-shareA:null};
 }
@@ -618,12 +674,14 @@ function renderAll(){
     S.mc=mc_;S.mcPending=big;if(!big)S.mcJob=(S.mcJob||0)+1;
     const dr=disRisk(r.ctyRes);
     const f=ff(r.nat);
+    const struct=structuralSummary();
+    S.struct=struct;
     const i25=r.ctyRes.filter(c=>c.i>=0.25).length;
 
     rHeadline(r,mc_,i25);
     // Only the open tab is drawn now; the others are marked stale and drawn
     // when opened (cuts first render and every slider move).
-    S.ctx={r,mc:mc_,dr,f,i25};
+    S.ctx={r,mc:mc_,dr,f,i25,struct};
     S.dirty=new Set(Object.keys(PANE_RENDER));
     const open=document.querySelector('.tbtn.act')?.dataset.t||'cmd';
     renderPane(open);
@@ -674,8 +732,9 @@ function rKPIs(r,mc_,dr,f,i25){
 
 function rImpl(r,mc_){
   const lines=implTxt(r,mc_);
+  const st=S.struct,unc=st?`<div class="note mt8"><strong>Uncertainty:</strong> conditional 10–90% range for ${mapEsc(S.cfg.teams[0])}: ${pct(mc_.iLo)}–${pct(mc_.iHi)}. Structural range across the preset coalition paths: ${pct(st.iLo)}–${pct(st.iHi)}. The second range is political uncertainty, not a probability interval.</div>`:'';
   $('#implBox').innerHTML=`<div class="impl-hdr">What this means</div>
-  ${lines.map((l,i)=>`<div class="impl-row"><div class="impl-n">${i+1}</div><div class="impl-txt">${l}</div></div>`).join('')}`;
+  ${lines.map((l,i)=>`<div class="impl-row"><div class="impl-n">${i+1}</div><div class="impl-txt">${l}</div></div>`).join('')}${unc}`;
 }
 
 function rNat(r){
@@ -1222,15 +1281,16 @@ function rWardDrill(wardRes){
   if(!$('#wardTbl'))return;
   const s=($('#wardSrch')?.value||'').toLowerCase();
   const rows=wardRes.filter(w=>w.county===S.selCty&&(!s||w.ward.toLowerCase().includes(s)||w.constituency.toLowerCase().includes(s)));
-  $('#wardTbl').innerHTML=`<thead><tr><th>Ward</th><th class="r">${mapEsc(S.cfg.teams[0])}</th><th class="r">${mapEsc(S.cfg.teams[1]||'B')}</th><th class="r opt">Others</th><th class="r">Voters</th><th class="opt">Constituency</th><th class="r opt">Turnout</th></tr></thead>
+  $('#wardTbl').innerHTML=`<caption class="hint">Official 1,450-ward hierarchy and 2022 ward register. Preference and turnout estimates are <strong>constituency-imputed</strong>; they are not independent ward forecasts.</caption><thead><tr><th>Ward</th><th class="r">${mapEsc(S.cfg.teams[0])}</th><th class="r">${mapEsc(S.cfg.teams[1]||'B')}</th><th class="r opt">Others</th><th class="r">Voter weight</th><th class="opt">Constituency</th><th class="r opt">Turnout</th><th class="opt">Basis</th></tr></thead>
   <tbody>${rows.map(w=>`<tr>
     <td class="u-strong">${w.ward}</td>
-    <td class="r c-team-a">${pct(w.inc)}</td>
-    <td class="r c-team-b">${pct(w.opp)}</td>
-    <td class="r c-others opt">${pct(w.tf)}</td>
+    <td class="r c-team-a" title="Constituency-imputed">~${pct(w.inc)}</td>
+    <td class="r c-team-b" title="Constituency-imputed">~${pct(w.opp)}</td>
+    <td class="r c-others opt" title="Constituency-imputed">~${pct(w.tf)}</td>
     <td class="r u-mono12">${fmtVotes(w.voters)}</td>
     <td class="u-meta opt">${w.constituency}</td>
-    <td class="r opt">${pct(w.to)}</td>
+    <td class="r opt" title="Constituency-imputed">~${pct(w.to)}</td>
+    <td class="u-meta opt">Constituency-imputed</td>
   </tr>`).join('')}</tbody>`;
 }
 
@@ -1289,7 +1349,7 @@ function rIntel(){
     <div class="u-meta u-lh-snug">${r.e}</div>
   </div>`).join('');
 
-  $('#methNotes').innerHTML=`<strong>How it works</strong><br>Each candidate's support comes from the national polling average and is spread across 1,457 wards using their home regions and 2022 voting patterns. Teams add up their members' support, minus supporters who don't follow. The model then runs the election hundreds of times with random polling error. An outright win needs over 50% nationally and 25% in 24 counties; otherwise the top two go to a run-off, won by most votes. This is a scenario tool, not a forecast.`;
+  $('#methNotes').innerHTML=`<strong>How it works</strong><br>The central candidate baseline uses model-eligible polls with recency, sample-size and pollster-quality weights; held-out polls are sensitivity evidence. Kenya's official 1,450 wards and 2022 ward register are used for geography, while political preference and turnout remain constituency-imputed and are labelled as such. Candidate-by-region coalition-transfer priors replace a universal leakage rule. The default register mode uses the 20 Aug 2026 national enrolment total allocated by the official 28 Apr county ECVR shares; the 28.5m IEBC target is a separate scenario, not a gazetted register. Monte Carlo ranges are conditional on a coalition scenario; the separate structural range shows how much preset coalition paths move the result. Projects and political hype are signals until measured by polling. This is scenario intelligence, not a point forecast.`;
 
   // small multiples: one bar per poll, split by the current teams
   const sm=$('#pollsSM');
@@ -1304,7 +1364,8 @@ function rIntel(){
   const cf=$('#ctxFacts');
   // the date is the source link; the source's domain sits under the fact
   if(cf)cf.innerHTML=CONTEXT_FACTS.map(x=>{let host='';try{host=new URL(x.url).hostname.replace(/^www\./,'');}catch(e){}
-    return `<li><a class="ctx-d" href="${x.url}" target="_blank" rel="noopener" aria-label="Source for ${mapEsc(x.date)}">${x.date}</a><span>${mapEsc(x.t)}<span class="ctx-src">${mapEsc(host)}</span></span></li>`;}).join('');
+    return `<li><a class="ctx-d" href="${x.url}" target="_blank" rel="noopener" aria-label="Source for ${mapEsc(x.date)}">${x.date}</a><span>${mapEsc(x.t)}<span class="ctx-src">${mapEsc(host)}</span></span></li>`;}).join('')+
+    (typeof SALIENT_EVENTS!=='undefined'?SALIENT_EVENTS.map(x=>`<li><span class="ctx-d">${mapEsc(x.date)}</span><span><strong>Signal · ${mapEsc(x.region)}:</strong> ${mapEsc(x.title)}<span class="ctx-src">${mapEsc(x.note)}</span></span></li>`).join(''):'');
 }
 
 function rShockLog(){
@@ -1323,8 +1384,8 @@ function dlCSV(kind){
     rows=[['County','Cluster','Voters','Turnout','Inc','Inc≥25','Opp','TF','DQ']];
     r.ctyRes.forEach(c=>rows.push([c.name,c.cluster,Math.round(c.tv),pct(c.to),pct(c.i),c.ia,pct(c.o),pct(c.t),c.dq]));
   }else if(kind==='ward'){
-    rows=[['County','Constituency','Ward','Voters','Turnout','Inc','Opp','TF','DQ']];
-    (S.wards||[]).forEach(w=>rows.push([w.county,w.constituency,w.ward,Math.round(w.voters),pct(w.to),pct(w.inc),pct(w.opp),pct(w.tf),w.dq]));
+    rows=[['County','Constituency','Ward','WeightedVoters','RegisteredVoters2022','Turnout','Inc','Opp','TF','Basis','DQ']];
+    (S.wards||[]).forEach(w=>rows.push([w.county,w.constituency,w.ward,Math.round(w.voters),Math.round(w.registered2022||0),pct(w.to),pct(w.inc),pct(w.opp),pct(w.tf),w.basis||'constituency_imputed',w.dq]));
   }else if(kind==='tipping'){
     rows=[['County','Cluster','IncShare','Gap','VotesNeeded','OppShare','TFShare','DQ']];
     (S.tip||[]).forEach(t=>rows.push([t.name,t.cl,pct(t.i),pct(t.ig),t.vn,pct(t.o),pct(t.t),t.dq]));
@@ -1590,7 +1651,7 @@ function renderExecutiveReport(){
 
   // run-off (even split default + leans)
   const roV=['toA','spl','toB'].map(d=>({d,res:r2sim(r.ctyRes,n,d)}));
-  const roS=roV[1].res,fa=roS.a,fb=roS.b;
+  const roS=r2sim(r.ctyRes,n,'model'),fa=roS.a,fb=roS.b;
   const carriedA=roS.r2cty.filter(c=>c.r2lead===fa).length;
 
   // ── team tiles (teams first) ──
@@ -1812,11 +1873,11 @@ document.addEventListener('DOMContentLoaded',()=>{
     // Full reset: assumptions, political context, polls and probability settings.
     // (Previously left regimes/polls untouched and kept a stale iteration count and theme.)
     const {reg:dReg,rt:dRt,...dSl}=DEFAULTS;
-    Object.assign(S,dSl,{shocks:[],shLog:[],timer:30,mcMode:'research',seed:'2027-baseline-001'});
+    Object.assign(S,dSl,{shocks:[],shLog:[],timer:30,mcMode:'research',seed:'2027-baseline-001',registerMode:'current'});
     S.reg={...dReg};S.rt={...dRt};S.cfg=defaultCfg();syncRegionSliders();
     Object.keys(dSl).forEach(k=>{const el=$('#sl-'+k);if(el)el.value=S[k];});
     if(typeof renderTeams==='function')renderTeams();
-    $('#mcModeSelect')&&($('#mcModeSelect').value=S.mcMode);$('#seedInput')&&($('#seedInput').value=S.seed);$('#viewModeSelect')&&($('#viewModeSelect').value=S.viewMode);
+    $('#mcModeSelect')&&($('#mcModeSelect').value=S.mcMode);$('#seedInput')&&($('#seedInput').value=S.seed);$('#registerModeSelect')&&($('#registerModeSelect').value=S.registerMode);$('#viewModeSelect')&&($('#viewModeSelect').value=S.viewMode);
     syncRegimeUI();updateMcModeUI();updateViewModeLabels();updateLabels();renderAll();rShockLog();
   });
 
@@ -1827,6 +1888,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   // v4.5 governance controls
   $('#mcModeSelect')?.addEventListener('change',e=>{S.mcMode=e.target.value;updateMcModeUI();renderAll();rShockLog();});
   $('#seedInput')?.addEventListener('change',e=>{S.seed=e.target.value||'2027-baseline-001';updateMcModeUI();if(S.mcMode==='research'){renderAll();rShockLog();}});
+  $('#registerModeSelect')?.addEventListener('change',e=>{S.registerMode=e.target.value||'current';renderAll();rShockLog();});
   $('#viewModeSelect')?.addEventListener('change',e=>{S.viewMode=e.target.value;updateViewModeLabels();renderAll();});
   $('#themeSelect')?.addEventListener('change',e=>{S.theme=e.target.value;applyTheme();});
   updateMcModeUI();updateViewModeLabels();applyTheme();
